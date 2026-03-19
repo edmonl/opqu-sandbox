@@ -5,6 +5,16 @@
 - mmdebstrap + systemd-nspawn (no user namespaces; real host UIDs inside container)
 - All global names (bridges, systemd units, machine names) prefixed with `opqu-sbx-`
 
+Required host commands:
+- `mmdebstrap`
+- `systemd-nspawn`
+- `systemd-run`
+- `machinectl`
+- `tar` with Zstandard support
+- `zstd`
+- `ip`
+- `systemctl`
+
 ---
 
 ## Name Validation
@@ -274,7 +284,9 @@ sudo systemd-run \
 | `sbxctl shell {name}` | `sudo machinectl shell CONTAINER_USER@opqu-sbx-{name}` |
 | `sbxctl stop {name}` | if running: `sudo machinectl poweroff opqu-sbx-{name}`; if already stopped: exit 0 |
 | `sbxctl reset {name}` | refuse if running + wipe rootfs + re-extract tarball (see R6) |
-| `sbxctl delete {name}` | refuse if running + remove rootfs, tarball, conf files, bridge, unit (see R8) |
+| `sbxctl snapshot {name} [output_path]` | refuse if running + write user-owned snapshot tarball of current rootfs (see R8) |
+| `sbxctl restore {name} {snapshot_path}` | refuse if running + wipe rootfs + extract user snapshot (see R9) |
+| `sbxctl delete {name}` | refuse if running + remove rootfs, tarball, conf files, bridge, unit (see R10) |
 | `sbxctl status` | thin wrapper over `machinectl list` filtered to `opqu-sbx-*` |
 
 If an unrecognised subcommand is given, print a usage summary to stderr and
@@ -389,10 +401,65 @@ This requires the rootfs to not exist; remove it manually first if needed:
 
 ---
 
-## R8 — Delete (`sbxctl delete {name}`)
+## R8 — Snapshot (`sbxctl snapshot {name} [output_path]`)
+
+Persists the current state of a sandbox rootfs as a user-managed backup
+archive. This does not replace the built-in base tarball used by `reset`.
+
+1. Check if running; if yes, print:
+   `"sandbox '{name}' is running; stop it first with 'sbxctl stop {name}'"` and exit 1
+2. Resolve the output path:
+   - If `output_path` is given, use it exactly
+   - Otherwise write to the caller's current working directory as:
+     `./opqu-sbx-{name}.snapshot.tar.zst`
+3. If the output path already exists, print a clear error telling the user to
+   move it away first, then exit 1
+4. Create a compressed tarball of `rootfs-{name}/` using Zstandard with a
+   high-compression setting
+5. If writing the snapshot succeeds but moving it into the final output path
+   fails, keep the temporary snapshot file and print its path so the user can
+   move or clean it up manually
+
+Notes:
+- The archive is user-managed, unlike `rootfs-{name}.base.tar.zst` which is
+  root-managed
+- Do not change ownership of files inside the archived rootfs; only the output
+  archive file itself is expected to be owned by the invoking user
+- The archive contains the `rootfs-{name}/` directory itself, not only its
+  contents, so it can be extracted directly into `ROOT_DIR` during restore
+- If the rootfs is missing or unreadable, let `tar` fail normally and pass
+  its output through unmodified
+
+---
+
+## R9 — Restore (`sbxctl restore {name} {snapshot_path}`)
+
+Restores a user-created snapshot over the live rootfs. This is distinct from
+`reset`, which always restores the clean base image created by `sbxctl create`.
+
+1. Check if running; if yes, print:
+   `"sandbox '{name}' is running; stop it first with 'sbxctl stop {name}'"` and exit 1
+2. Before deleting anything, verify that `snapshot_path` exists, is a regular
+   file, and is readable. If not, print a clear error and exit 1
+3. Before deleting anything, verify that the archive contains
+   `rootfs-{name}/` as a top-level entry. If not, print a clear error and exit 1
+4. `sudo rm -rf "$ROOT_DIR/rootfs-{name}"`
+5. `sudo tar --zstd -xf "{snapshot_path}" -C "$ROOT_DIR"`
+
+Notes:
+- `snapshot_path` is required and positional
+- Only basic path and top-level naming checks are performed before restore;
+  deeper archive correctness remains the user's responsibility
+- No extra automation is performed; if extraction fails, `tar`'s own error
+  output passes through and the command exits non-zero
+- Restoring a snapshot does not update or replace `rootfs-{name}.base.tar.zst`
+
+---
+
+## R10 — Delete (`sbxctl delete {name}`)
 
 Permanently removes all files associated with a single sandbox. Mirrors the
-steps in R9 (complete removal) but scoped to one sandbox.
+steps in R11 (complete removal) but scoped to one sandbox.
 
 1. Check if running; if yes, print:
    `"sandbox '{name}' is running; stop it first with 'sbxctl stop {name}'"` and exit 1
@@ -426,7 +493,7 @@ steps in R9 (complete removal) but scoped to one sandbox.
 
 ---
 
-## R9 — Complete Removal
+## R11 — Complete Removal
 
 To fully remove everything related to this system:
 
@@ -518,6 +585,7 @@ All commands follow this convention:
 2. `sbxctl start` — conf parsing, missing-file defaults, mount/port flag assembly, sudo systemd-run launch
 3. `sbxctl stop` / `sbxctl shell` — machinectl wrappers; stop is idempotent, shell passes errors through
 4. `sbxctl reset` — running check + wipe + re-extract
-5. `sbxctl delete` — thin wrapper; removes rootfs, tarball, and conf files
-6. `sbxctl status` — machinectl list filtered to `opqu-sbx-*`, footer recomputed
-7. Audio support in `sbxctl start` — last, after core is verified working
+5. `sbxctl snapshot` / `sbxctl restore` — user-managed backup and recovery path
+6. `sbxctl delete` — thin wrapper; removes rootfs, tarball, and conf files
+7. `sbxctl status` — machinectl list filtered to `opqu-sbx-*`, footer recomputed
+8. Audio support in `sbxctl start` — last, after core is verified working

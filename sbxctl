@@ -12,6 +12,8 @@ Usage:
   sbxctl [--root PATH] shell {name}
   sbxctl [--root PATH] stop {name}
   sbxctl [--root PATH] reset {name}
+  sbxctl [--root PATH] snapshot {name} [output_path]
+  sbxctl [--root PATH] restore {name} {snapshot_path}
   sbxctl [--root PATH] delete {name}
   sbxctl [--root PATH] status
 EOF
@@ -85,6 +87,12 @@ machine_name() {
 
 bridge_name() {
   printf 'vz-opqu-%s' "$1"
+}
+
+default_snapshot_path() {
+  local name="$1"
+
+  printf '%s/opqu-sbx-%s.snapshot.tar.zst' "$PWD" "$name"
 }
 
 is_running() {
@@ -358,6 +366,99 @@ cmd_reset() {
   sudo systemctl reset-failed "$machine" 2>/dev/null || true
 }
 
+cmd_snapshot() {
+  local name="$1"
+  local output_path="${2:-}"
+  local output_dir
+  local output_base
+  local tmp_output
+
+  if is_running "$name"; then
+    error "sandbox '$name' is running; stop it first with 'sbxctl stop $name'"
+    exit 1
+  fi
+
+  if [[ -z "$output_path" ]]; then
+    output_path="$(default_snapshot_path "$name")"
+  fi
+
+  if [[ -e "$output_path" ]]; then
+    error "snapshot output '$output_path' already exists; move it away first"
+    exit 1
+  fi
+
+  output_dir="$(dirname "$output_path")"
+  output_base="$(basename "$output_path")"
+  if ! tmp_output="$(mktemp "$output_dir/.${output_base}.tmp.XXXXXX")"; then
+    error "failed to create temporary snapshot file in '$output_dir'"
+    exit 1
+  fi
+
+  # shellcheck disable=SC2024
+  if ! sudo tar -I 'zstd -19 -T0' -cf - -C "$ROOT_DIR" "rootfs-$name/" >"$tmp_output"; then
+    rm -f "$tmp_output"
+    exit 1
+  fi
+
+  if ! mv "$tmp_output" "$output_path"; then
+    error "failed to move snapshot into place at '$output_path'; temporary snapshot kept at '$tmp_output'"
+    exit 1
+  fi
+}
+
+cmd_restore() {
+  local name="$1"
+  local snapshot_path="$2"
+  local expected_rootfs="rootfs-$name/"
+  local entry
+  local tar_listing
+  local found_rootfs=0
+
+  if is_running "$name"; then
+    error "sandbox '$name' is running; stop it first with 'sbxctl stop $name'"
+    exit 1
+  fi
+
+  if [[ ! -e "$snapshot_path" ]]; then
+    error "snapshot '$snapshot_path' does not exist"
+    exit 1
+  fi
+
+  if [[ ! -f "$snapshot_path" ]]; then
+    error "snapshot '$snapshot_path' is not a regular file"
+    exit 1
+  fi
+
+  if [[ ! -r "$snapshot_path" ]]; then
+    error "snapshot '$snapshot_path' is not readable"
+    exit 1
+  fi
+
+  if ! tar_listing="$(sudo tar --zstd -tf "$snapshot_path")"; then
+    exit 1
+  fi
+
+  while IFS= read -r entry; do
+    if [[ "$entry" == "$expected_rootfs" ]]; then
+      found_rootfs=1
+    fi
+  done <<<"$tar_listing"
+
+  if [[ "$found_rootfs" -ne 1 ]]; then
+    error "snapshot '$snapshot_path' does not contain top-level '$expected_rootfs'"
+    exit 1
+  fi
+
+  if ! sudo rm -rf "$ROOT_DIR/rootfs-$name"; then
+    error "failed to remove rootfs for sandbox '$name'"
+    exit 1
+  fi
+
+  if ! sudo tar --zstd -xf "$snapshot_path" -C "$ROOT_DIR"; then
+    exit 1
+  fi
+}
+
 cmd_delete() {
   local name="$1"
   local bridge
@@ -420,6 +521,7 @@ main() {
   local cmd
   local name
   local root_arg=""
+  local path_arg=""
 
   if [[ "${1:-}" == "--root" ]]; then
     if [[ $# -lt 2 ]]; then
@@ -440,6 +542,22 @@ main() {
         exit 1
       fi
       validate_name "$name"
+      ;;
+    snapshot)
+      if [[ $# -ne 2 && $# -ne 3 ]]; then
+        usage
+        exit 1
+      fi
+      validate_name "$name"
+      path_arg="${3:-}"
+      ;;
+    restore)
+      if [[ $# -ne 3 ]]; then
+        usage
+        exit 1
+      fi
+      validate_name "$name"
+      path_arg="$3"
       ;;
     status)
       if [[ $# -ne 1 ]]; then
@@ -465,6 +583,8 @@ main() {
     shell) cmd_shell "$name" ;;
     stop) cmd_stop "$name" ;;
     reset) cmd_reset "$name" ;;
+    snapshot) cmd_snapshot "$name" "$path_arg" ;;
+    restore) cmd_restore "$name" "$path_arg" ;;
     delete) cmd_delete "$name" ;;
     status) cmd_status ;;
   esac
