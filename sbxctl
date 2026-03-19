@@ -1,0 +1,473 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+
+ROOT_DIR=""
+
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  sbxctl [--root PATH] create {name}
+  sbxctl [--root PATH] start {name}
+  sbxctl [--root PATH] shell {name}
+  sbxctl [--root PATH] stop {name}
+  sbxctl [--root PATH] reset {name}
+  sbxctl [--root PATH] delete {name}
+  sbxctl [--root PATH] status
+EOF
+}
+
+error() {
+  printf '%s\n' "$*" >&2
+}
+
+require_space_free_root_dir() {
+  if [[ "$ROOT_DIR" =~ [[:space:]] ]]; then
+    error "sandbox root '$ROOT_DIR' contains whitespace; move it to a path without spaces"
+    exit 1
+  fi
+}
+
+resolve_root_dir() {
+  local root_input
+  local resolved_root
+
+  root_input="${OPQU_SBX_ROOT:-$PWD}"
+  if ! resolved_root="$(cd "$root_input" 2>/dev/null && pwd)"; then
+    error "sandbox root '$root_input' does not exist or is not accessible"
+    exit 1
+  fi
+
+  ROOT_DIR="$resolved_root"
+}
+
+validate_name() {
+  local name="$1"
+  local length="${#name}"
+
+  if [[ ! "$name" =~ ^[a-z0-9-]{1,7}$ ]]; then
+    error "sandbox name '$name' is invalid (${length} characters); must be 1–7 characters, lowercase alphanumeric and hyphens only"
+    exit 1
+  fi
+}
+
+load_global_config() {
+  DISTRO=trixie
+  MIRROR=http://deb.debian.org/debian
+  VARIANT=standard
+  CONTAINER_USER=""
+
+  if [[ -f "$ROOT_DIR/conf/global.conf" ]]; then
+    # shellcheck disable=SC1091
+    source "$ROOT_DIR/conf/global.conf"
+  fi
+
+  if [[ -z "${CONTAINER_USER:-}" ]]; then
+    CONTAINER_USER="$(whoami)"
+  fi
+}
+
+load_sandbox_config() {
+  local name="$1"
+
+  PORTS=""
+  AUDIO=no
+
+  if [[ -f "$ROOT_DIR/conf/$name.conf" ]]; then
+    # shellcheck disable=SC1090
+    source "$ROOT_DIR/conf/$name.conf"
+  fi
+}
+
+machine_name() {
+  printf 'opqu-sbx-%s' "$1"
+}
+
+bridge_name() {
+  printf 'vz-opqu-%s' "$1"
+}
+
+is_running() {
+  local name="$1"
+  local machine
+  local list_output
+
+  machine="$(machine_name "$name")"
+  if ! list_output="$(machinectl list --no-legend 2>/dev/null)"; then
+    error "failed to query sandbox state with machinectl"
+    exit 1
+  fi
+
+  if grep -Eq "^${machine}[[:space:]]" <<<"$list_output"; then
+    return 0
+  fi
+
+  return 1
+}
+
+build_include_arg() {
+  local name="$1"
+  local packages_file="$ROOT_DIR/conf/$name.packages"
+  local -a packages=()
+  local line
+  local joined=""
+  local package
+  declare -A seen=()
+
+  if [[ -f "$packages_file" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      if [[ "$line" =~ ^[[:space:]]*$ ]]; then
+        continue
+      fi
+      if [[ "$line" =~ ^[[:space:]]*# ]]; then
+        continue
+      fi
+      packages+=("$line")
+    done <"$packages_file"
+  fi
+
+  if [[ "$AUDIO" == "yes" ]]; then
+    packages+=("pipewire-pulse")
+  fi
+
+  for package in "${packages[@]}"; do
+    if [[ -n "${seen[$package]:-}" ]]; then
+      continue
+    fi
+    seen["$package"]=1
+    if [[ -n "$joined" ]]; then
+      joined+=","
+    fi
+    joined+="$package"
+  done
+
+  if [[ -n "$joined" ]]; then
+    printf '%s\n' "$joined"
+  fi
+}
+
+build_mount_flags() {
+  local name="$1"
+  local mounts_file="$ROOT_DIR/conf/$name.mounts"
+  local line
+  local host_path
+  local container_path
+  local mode
+
+  MOUNT_FLAGS=()
+
+  if [[ ! -f "$mounts_file" ]]; then
+    return
+  fi
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" =~ ^[[:space:]]*$ ]]; then
+      continue
+    fi
+    if [[ "$line" =~ ^[[:space:]]*# ]]; then
+      continue
+    fi
+
+    if [[ "$line" =~ ^([^:]+):([^:]+)(:ro)?$ ]]; then
+      host_path="${BASH_REMATCH[1]}"
+      container_path="${BASH_REMATCH[2]}"
+      mode="${BASH_REMATCH[3]}"
+      if [[ "$mode" == ":ro" ]]; then
+        MOUNT_FLAGS+=("--bind-ro=${host_path}:${container_path}")
+      else
+        MOUNT_FLAGS+=("--bind=${host_path}:${container_path}")
+      fi
+    else
+      error "invalid mount entry in conf/$name.mounts: '$line'"
+      exit 1
+    fi
+  done <"$mounts_file"
+}
+
+build_port_flags() {
+  PORT_FLAGS=()
+  local port
+
+  if [[ -z "${PORTS:-}" ]]; then
+    return
+  fi
+
+  for port in $PORTS; do
+    PORT_FLAGS+=("--port=$port")
+  done
+}
+
+build_audio_flags() {
+  AUDIO_FLAGS=()
+
+  if [[ "$AUDIO" == "yes" ]]; then
+    AUDIO_FLAGS+=("--bind=/run/user/$(id -u)/pipewire-0:/run/user/host/pipewire-0")
+    AUDIO_FLAGS+=("--setenv=PIPEWIRE_REMOTE=/run/user/host/pipewire-0")
+  fi
+}
+
+cmd_create() {
+  local name="$1"
+  local rootfs="$ROOT_DIR/rootfs-$name"
+  local tarball="$ROOT_DIR/rootfs-$name.base.tar.zst"
+  local include_list=""
+  local -a mmdebstrap_args=()
+  local enable_networkd_hook
+  local create_user_hook
+  local cache_in_hook
+  local cache_out_hook
+  local uid
+
+  require_space_free_root_dir
+
+  if [[ -d "$rootfs" ]]; then
+    error "sandbox '$name' already exists; run 'sbxctl reset $name' to wipe it"
+    exit 1
+  fi
+
+  load_global_config
+
+  if ! id "$CONTAINER_USER" >/dev/null 2>&1; then
+    error "CONTAINER_USER '$CONTAINER_USER' does not exist on the host; create it first"
+    exit 1
+  fi
+
+  uid="$(id -u "$CONTAINER_USER")"
+
+  if ! sudo mkdir -p "$ROOT_DIR/pkg-cache"; then
+    error "failed to create pkg-cache directory"
+    exit 1
+  fi
+
+  load_sandbox_config "$name"
+  include_list="$(build_include_arg "$name")"
+
+  mmdebstrap_args=(
+    "--variant=$VARIANT"
+    "--skip=essential/unlink"
+    "--setup-hook=mkdir -p \"\$1/var/cache/apt/archives/\""
+  )
+
+  printf -v cache_in_hook 'sync-in %q /var/cache/apt/archives/' "$ROOT_DIR/pkg-cache"
+  printf -v cache_out_hook 'sync-out /var/cache/apt/archives %q' "$ROOT_DIR/pkg-cache"
+  mmdebstrap_args+=(
+    "--setup-hook=$cache_in_hook"
+    "--customize-hook=$cache_out_hook"
+  )
+
+  # shellcheck disable=SC2016
+  printf -v enable_networkd_hook 'chroot "$1" systemctl enable systemd-networkd'
+  # shellcheck disable=SC2016
+  printf -v create_user_hook \
+    'chroot "$1" /bin/sh -c %q' \
+    "useradd -m -u $uid -s /bin/bash $CONTAINER_USER && passwd -l root && passwd -l $CONTAINER_USER"
+  mmdebstrap_args+=(
+    "--customize-hook=$enable_networkd_hook"
+    "--customize-hook=$create_user_hook"
+  )
+
+  if [[ -n "$include_list" ]]; then
+    mmdebstrap_args+=("--include=$include_list")
+  fi
+
+  if ! sudo mmdebstrap \
+    "${mmdebstrap_args[@]}" \
+    "$DISTRO" \
+    "$rootfs" \
+    "$MIRROR"; then
+    error "bootstrapping sandbox '$name' failed"
+    exit 1
+  fi
+
+  if ! sudo tar --zstd -cf "$tarball" -C "$ROOT_DIR" "rootfs-$name/"; then
+    error "failed to create base tarball for sandbox '$name'"
+    exit 1
+  fi
+}
+
+cmd_start() {
+  local name="$1"
+  local machine
+
+  load_global_config
+  load_sandbox_config "$name"
+  build_mount_flags "$name"
+  build_port_flags
+  build_audio_flags
+  machine="$(machine_name "$name")"
+
+  exec sudo systemd-run \
+    --unit="$machine" \
+    --description="opqu-sandbox $name" \
+    --collect \
+    systemd-nspawn \
+    --boot \
+    --machine="$machine" \
+    --directory="$ROOT_DIR/rootfs-$name" \
+    --network-zone="opqu-$name" \
+    --resolv-conf=replace-uplink \
+    "${MOUNT_FLAGS[@]}" \
+    "${PORT_FLAGS[@]}" \
+    "${AUDIO_FLAGS[@]}"
+}
+
+cmd_shell() {
+  local name="$1"
+  local machine
+
+  load_global_config
+  machine="$(machine_name "$name")"
+
+  exec sudo machinectl shell "$CONTAINER_USER@$machine"
+}
+
+cmd_stop() {
+  local name="$1"
+  local machine
+
+  if ! is_running "$name"; then
+    exit 0
+  fi
+
+  machine="$(machine_name "$name")"
+  exec sudo machinectl poweroff "$machine"
+}
+
+cmd_reset() {
+  local name="$1"
+  local bridge
+  local machine
+
+  if is_running "$name"; then
+    error "sandbox '$name' is running; stop it first with 'sbxctl stop $name'"
+    exit 1
+  fi
+
+  if ! sudo rm -rf "$ROOT_DIR/rootfs-$name"; then
+    error "failed to remove rootfs for sandbox '$name'"
+    exit 1
+  fi
+
+  if ! sudo tar --zstd -xf "$ROOT_DIR/rootfs-$name.base.tar.zst" -C "$ROOT_DIR"; then
+    exit 1
+  fi
+
+  bridge="$(bridge_name "$name")"
+  machine="$(machine_name "$name")"
+  sudo ip link delete "$bridge" 2>/dev/null || true
+  sudo systemctl reset-failed "$machine" 2>/dev/null || true
+}
+
+cmd_delete() {
+  local name="$1"
+  local bridge
+  local machine
+
+  if is_running "$name"; then
+    error "sandbox '$name' is running; stop it first with 'sbxctl stop $name'"
+    exit 1
+  fi
+
+  if ! sudo rm -rf "$ROOT_DIR/rootfs-$name"; then
+    error "failed to remove rootfs for sandbox '$name'"
+    exit 1
+  fi
+
+  if ! sudo rm -f "$ROOT_DIR/rootfs-$name.base.tar.zst"; then
+    error "failed to remove base tarball for sandbox '$name'"
+    exit 1
+  fi
+
+  if ! rm -f \
+    "$ROOT_DIR/conf/$name.conf" \
+    "$ROOT_DIR/conf/$name.packages" \
+    "$ROOT_DIR/conf/$name.mounts"; then
+    error "failed to remove config files for sandbox '$name'"
+    exit 1
+  fi
+
+  bridge="$(bridge_name "$name")"
+  machine="$(machine_name "$name")"
+  sudo ip link delete "$bridge" 2>/dev/null || true
+  sudo systemctl reset-failed "$machine" 2>/dev/null || true
+}
+
+cmd_status() {
+  local machine_list
+  local header
+  local matched_lines
+  local count
+
+  if ! machine_list="$(machinectl list 2>/dev/null)"; then
+    error "failed to query sandbox status with machinectl"
+    exit 1
+  fi
+
+  header="$(printf '%s\n' "$machine_list" | sed -n '1p')"
+  matched_lines="$(printf '%s\n' "$machine_list" | awk 'NR > 1 && /^opqu-sbx-/')"
+
+  printf '%s\n' "$header"
+  if [[ -n "$matched_lines" ]]; then
+    printf '%s\n' "$matched_lines"
+    count="$(printf '%s\n' "$matched_lines" | wc -l | tr -d ' ')"
+  else
+    count=0
+  fi
+  printf '%s machines listed.\n' "$count"
+}
+
+main() {
+  local cmd
+  local name
+  local root_arg=""
+
+  if [[ "${1:-}" == "--root" ]]; then
+    if [[ $# -lt 2 ]]; then
+      usage
+      exit 1
+    fi
+    root_arg="$2"
+    shift 2
+  fi
+
+  cmd="${1:-}"
+  name="${2:-}"
+
+  case "$cmd" in
+    create|start|shell|stop|reset|delete)
+      if [[ $# -ne 2 ]]; then
+        usage
+        exit 1
+      fi
+      validate_name "$name"
+      ;;
+    status)
+      if [[ $# -ne 1 ]]; then
+        usage
+        exit 1
+      fi
+      ;;
+    *)
+      usage
+      exit 1
+      ;;
+  esac
+
+  if [[ -n "$root_arg" ]]; then
+    OPQU_SBX_ROOT="$root_arg"
+  fi
+
+  resolve_root_dir
+
+  case "$cmd" in
+    create) cmd_create "$name" ;;
+    start) cmd_start "$name" ;;
+    shell) cmd_shell "$name" ;;
+    stop) cmd_stop "$name" ;;
+    reset) cmd_reset "$name" ;;
+    delete) cmd_delete "$name" ;;
+    status) cmd_status ;;
+  esac
+}
+
+main "$@"
