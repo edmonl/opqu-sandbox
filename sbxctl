@@ -16,6 +16,33 @@ Usage:
   sbxctl [--root PATH] restore {name} {snapshot_path}
   sbxctl [--root PATH] delete {name}
   sbxctl [--root PATH] status
+
+Commands:
+  create    Bootstrap a new sandbox and save its clean base image
+  start     Boot a sandbox with configured mounts, ports, and optional audio
+  shell     Open a shell as CONTAINER_USER inside a running sandbox
+  stop      Power off a running sandbox
+  reset     Restore a sandbox from its clean base image
+  snapshot  Save a stopped sandbox rootfs to a tar.zst archive
+  restore   Replace a sandbox rootfs from a snapshot archive
+  delete    Remove a sandbox, its base tarball, and per-sandbox config files
+  status    List currently running opqu sandboxes
+
+Configuration:
+  Root directory defaults to \$PWD and may be overridden by:
+    1. --root PATH
+    2. OPQU_SBX_ROOT=/path/to/root
+
+  Optional files under ROOT/conf/:
+    global.conf       Global defaults such as DISTRO, MIRROR, VARIANT, CONTAINER_USER
+    {name}.conf       Sandbox runtime settings such as PORTS and AUDIO
+    {name}.packages   Extra packages to install during create, one per line
+    {name}.mounts     Bind mounts in host_path:container_path[:ro] format
+
+Notes:
+  Sandbox names must be 1-7 characters of [a-z0-9-].
+  'create' requires a root path without whitespace.
+  Most commands use sudo because the container runs without user namespaces.
 EOF
 }
 
@@ -533,6 +560,14 @@ main() {
   fi
 
   cmd="${1:-}"
+
+  case "$cmd" in
+    help|-h|--help)
+      usage
+      exit 0
+      ;;
+  esac
+
   name="${2:-}"
 
   case "$cmd" in
