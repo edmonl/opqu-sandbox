@@ -40,6 +40,16 @@ Required host commands:
 - `ip`
 - `systemctl`
 
+## Why It Uses Root
+
+This project intentionally uses real root via `sudo` instead of user namespaces.
+
+- setup stays simple and predictable: no subordinate UID/GID mapping, no extra namespace configuration, and no special host preparation beyond the required tools
+- bind mounts are easier to use because the container user keeps the same UID as the host user, so file ownership lines up naturally
+- the security model is explicit: this is a convenience sandbox for local work, not a hard multi-tenant isolation boundary
+
+The tradeoff is deliberate: less setup friction and fewer surprises in exchange for requiring a trusted local machine and an operator who already has `sudo` access.
+
 ## Sandbox Root Layout
 
 When you run `sbxctl`, it manages sandbox data under the selected root directory:
