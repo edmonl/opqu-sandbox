@@ -123,11 +123,11 @@ export OPQU_SBX_ROOT=/path/to/sandboxes
 Per-sandbox runtime settings:
 
 ```bash
-PORTS='tcp:8080:8080 tcp:5432:5432'
+PORTS='tcp:8080:8080 udp:5353:5353 tcp:5432:5432'
 AUDIO=no
 ```
 
-- `PORTS` forwards host ports into the sandbox
+- `PORTS` forwards host ports into the sandbox; entries use `[protocol:]host_port[:container_port]`, protocol may be `tcp` or `udp`, omitting it defaults to `tcp`, and omitting `container_port` uses the same value as `host_port`
 - `AUDIO=yes` enables PipeWire socket binding and adds `pipewire-pulse` at create time
 
 ### `conf/<name>.packages`
