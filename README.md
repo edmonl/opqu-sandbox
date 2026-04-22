@@ -7,6 +7,7 @@ It is designed for local development and testing on a systemd-based Linux host. 
 - its own Debian root filesystem
 - isolated networking via `systemd-nspawn` network zones
 - optional bind mounts into the container
+- optional audio support via PipeWire (disabled by default)
 - an easy reset path back to a clean base image
 - snapshot and restore support for preserving sandbox state
 
@@ -128,7 +129,7 @@ AUDIO=no
 ```
 
 - `PORTS` forwards host ports into the sandbox; entries use `[protocol:]host_port[:container_port]`, protocol may be `tcp` or `udp`, omitting it defaults to `tcp`, and omitting `container_port` uses the same value as `host_port`
-- `AUDIO=yes` enables PipeWire socket binding and adds `pipewire-pulse` at create time
+- `AUDIO=yes` enables PipeWire socket binding and adds `pipewire-pulse` at create time; audio is disabled by default (`AUDIO=no`). If you enable audio after the sandbox is created, you must manually install `pipewire-pulse` inside the sandbox using a root shell (e.g., `sudo machinectl shell root@opqu-sbx-<name>`).
 
 ### `conf/<name>.packages`
 

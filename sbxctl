@@ -35,7 +35,7 @@ Configuration:
 
   Optional files under ROOT/conf/:
     global.conf       Global defaults such as DISTRO, MIRROR, VARIANT, CONTAINER_USER
-    {name}.conf       Sandbox runtime settings such as PORTS and AUDIO
+    {name}.conf       Sandbox runtime settings such as PORTS and AUDIO (default: no)
     {name}.packages   Extra packages to install during create, one per line
     {name}.mounts     Bind mounts in host_path:container_path[:ro] format
 
