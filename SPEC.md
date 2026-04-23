@@ -281,7 +281,7 @@ sudo systemd-run \
 |---|---|
 | `sbxctl create {name}` | mmdebstrap with cache + hooks + tarball (see R1) |
 | `sbxctl start {name}` | `sudo systemd-run` invocation above, assembled from conf + mounts |
-| `sbxctl shell {name}` | `sudo machinectl shell CONTAINER_USER@opqu-sbx-{name}` |
+| `sbxctl shell {name} [command...]` | `sudo machinectl shell CONTAINER_USER@opqu-sbx-{name} [command...]` |
 | `sbxctl stop {name}` | if running: `sudo machinectl poweroff opqu-sbx-{name}`; if already stopped: exit 0 |
 | `sbxctl reset {name}` | refuse if running + wipe rootfs + re-extract tarball (see R6) |
 | `sbxctl snapshot {name} [output_path]` | refuse if running + write user-owned snapshot tarball of current rootfs (see R8) |
@@ -304,7 +304,7 @@ unmodified. Do not capture or summarize output from `machinectl`, `systemd-run`,
 detects itself (wrong state, missing files, failed precondition checks).
 
 ### `sbxctl shell`
-Shells in as `CONTAINER_USER` via `sudo machinectl shell CONTAINER_USER@opqu-sbx-{name}`.
+Shells in or runs a command as `CONTAINER_USER` via `sudo machinectl shell CONTAINER_USER@opqu-sbx-{name} [command...]`.
 `CONTAINER_USER` is read from `conf/global.conf`; if the file does not exist or
 the value is empty, it defaults to `$(whoami)` at runtime — the same defaulting
 logic as all other commands.
@@ -312,6 +312,8 @@ If `sudo machinectl shell` fails for any reason (sandbox not running, user not f
 permission denied, etc.), its error output passes through directly and the
 script exits with machinectl's exit code. No pre-check, no fallback to root.
 To get a root shell: `sudo machinectl shell root@opqu-sbx-{name}`.
+If additional arguments are provided after `{name}`, they are passed directly
+to `machinectl shell` as the program and arguments to execute inside the sandbox.
 
 ### `sbxctl stop`
 Stop is defined by the final state, not the transition. If the sandbox is

@@ -9,7 +9,7 @@ usage() {
 Usage:
   sbxctl [--root PATH] create {name}
   sbxctl [--root PATH] start {name}
-  sbxctl [--root PATH] shell {name}
+  sbxctl [--root PATH] shell {name} [command...]
   sbxctl [--root PATH] stop {name}
   sbxctl [--root PATH] reset {name}
   sbxctl [--root PATH] snapshot {name} [output_path]
@@ -20,7 +20,7 @@ Usage:
 Commands:
   create    Bootstrap a new sandbox and save its clean base image
   start     Boot a sandbox with configured mounts, ports, and optional audio
-  shell     Open a shell as CONTAINER_USER inside a running sandbox
+  shell     Open a shell or run a command as CONTAINER_USER inside a running sandbox
   stop      Power off a running sandbox
   reset     Restore a sandbox from its clean base image
   snapshot  Save a stopped sandbox rootfs to a tar.zst archive
@@ -348,12 +348,13 @@ cmd_start() {
 
 cmd_shell() {
   local name="$1"
+  shift
   local machine
 
   load_global_config
   machine="$(machine_name "$name")"
 
-  exec sudo machinectl shell "$CONTAINER_USER@$machine"
+  exec sudo machinectl shell "$CONTAINER_USER@$machine" "$@"
 }
 
 cmd_stop() {
@@ -571,8 +572,15 @@ main() {
   name="${2:-}"
 
   case "$cmd" in
-    create|start|shell|stop|reset|delete)
+    create|start|stop|reset|delete)
       if [[ $# -ne 2 ]]; then
+        usage
+        exit 1
+      fi
+      validate_name "$name"
+      ;;
+    shell)
+      if [[ $# -lt 2 ]]; then
         usage
         exit 1
       fi
@@ -615,7 +623,7 @@ main() {
   case "$cmd" in
     create) cmd_create "$name" ;;
     start) cmd_start "$name" ;;
-    shell) cmd_shell "$name" ;;
+    shell) shift 2; cmd_shell "$name" "$@" ;;
     stop) cmd_stop "$name" ;;
     reset) cmd_reset "$name" ;;
     snapshot) cmd_snapshot "$name" "$path_arg" ;;
