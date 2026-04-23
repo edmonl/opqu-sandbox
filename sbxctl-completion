@@ -1,0 +1,71 @@
+_sbxctl_completions() {
+    local cur prev words cword
+    _get_comp_words_by_ref -n : cur prev words cword
+
+    local commands="create start shell stop reset snapshot restore delete status help"
+    local opts="--root"
+
+    # Find the root directory to look for sandboxes
+    local root_dir="."
+    if [[ -n "${OPQU_SBX_ROOT:-}" ]]; then
+        root_dir="$OPQU_SBX_ROOT"
+    fi
+
+    # Check if --root is in the current command line
+    local i
+    for ((i=1; i < cword; i++)); do
+        if [[ "${words[i]}" == "--root" ]]; then
+            root_dir="${words[i+1]}"
+            break
+        fi
+    done
+
+    # Resolve root_dir to an absolute path if possible
+    if [[ -d "$root_dir" ]]; then
+        root_dir=$(cd "$root_dir" && pwd)
+    fi
+
+    # Function to list existing sandbox names
+    _sbxctl_get_names() {
+        if [[ -d "$root_dir" ]]; then
+            find "$root_dir" -maxdepth 1 -name "rootfs-*" -type d 2>/dev/null | sed "s|.*/rootfs-||"
+        fi
+    }
+
+    # Completion logic
+    case "$prev" in
+        --root)
+            _filedir -d
+            return 0
+            ;;
+        create|start|shell|stop|reset|snapshot|restore|delete)
+            local names=$(_sbxctl_get_names)
+            COMPREPLY=( $(compgen -W "$names" -- "$cur") )
+            return 0
+            ;;
+    esac
+
+    # If we are completing the second argument for snapshot/restore
+    if (( cword >= 3 )); then
+        local cmd="${words[cword-2]}"
+        case "$cmd" in
+            snapshot)
+                _filedir
+                return 0
+                ;;
+            restore)
+                _filedir 'zst'
+                return 0
+                ;;
+        esac
+    fi
+
+    # Complete commands and global options
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
+    else
+        COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
+    fi
+}
+
+complete -F _sbxctl_completions sbxctl

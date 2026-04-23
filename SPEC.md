@@ -23,13 +23,13 @@ All `sbxctl` commands that take a `{name}` argument must validate it before
 doing anything else:
 
 - Allowed characters: lowercase alphanumeric and hyphens (`[a-z0-9-]`)
-- Maximum length: 7 characters (enforced by the `vz-opqu-` bridge prefix and
-  Linux's 15-character interface name limit)
+- Maximum length: 12 characters (calculated to ensure the `vz-` bridge prefix
+  and network zone name stay within Linux's 15-character interface name limit)
 - Must not be empty
 
 If validation fails, print a clear error and exit 1:
 ```
-"sandbox name '{name}' is invalid ({length} characters); must be 1–7 characters, lowercase alphanumeric and hyphens only"
+"sandbox name '{name}' is invalid ({length} characters); must be 1–12 characters, lowercase alphanumeric and hyphens only"
 ```
 
 
@@ -201,14 +201,32 @@ message (see R1).
 
 ## R3 — Networking
 
-- Each sandbox uses `--network-zone=opqu-{name}`
-  - Host auto-creates bridge `vz-opqu-{name}` and runs a DHCP server on it
-  - Container runs `systemd-networkd` (enabled at bootstrap) as DHCP client
-  - Outbound traffic is NAT'd by the host automatically — no config needed
-  - Note: the `vz-opqu-` prefix is 8 characters; Linux enforces a 15-character
-    hard limit on interface names, leaving 7 characters for `{name}`. This is
-    why sandbox names are capped at 7 characters (see Name Validation).
+- Each sandbox uses a network zone name calculated from the `{name}`.
+  - To stay under the 15-character Linux interface name limit (including the
+    mandatory `vz-` prefix for bridges), the zone prefix `opqu-` is dynamically
+    shortened if the sandbox name is long.
+  - Calculation:
+    1. If `opqu-{name}` is ≤ 12 chars, use `opqu-{name}`.
+    2. Else if `available = (12 - length({name}))` is ≥ 2, use a truncated
+       `opqu` prefix with a hyphen to keep total length at 12
+       (e.g., `opq-{name}`, `op-{name}`, `o-{name}`).
+    3. Else if `available` is 1, use `o{name}`.
+    4. Else, use the first 12 characters of `{name}`.
+  - Host auto-creates bridge `vz-{zone_name}` and runs a DHCP server on it.
+  - Container runs `systemd-networkd` (enabled at bootstrap) as DHCP client.
+  - Outbound traffic is NAT'd by the host automatically — no config needed.
+  - Note: the bridge name `vz-{zone_name}` is guaranteed to be ≤ 15 characters.
 - DNS: pass `--resolv-conf=replace-uplink` to nspawn
+...
+### Name Validation Examples
+
+Sandbox names must match `^[a-z0-9-]{1,12}$`.
+- `test` (4) → Bridge: `vz-opqu-test` (12 chars)
+- `12345678` (8) → Bridge: `vz-opq-12345678` (15 chars)
+- `1234567890` (10) → Bridge: `vz-o-1234567890` (15 chars)
+- `12345678901` (11) → Bridge: `vz-o12345678901` (15 chars)
+- `123456789012` (12) → Bridge: `vz-123456789012` (15 chars)
+
   - nspawn reads the host's real upstream DNS servers (bypassing
     systemd-resolved's stub at 127.0.0.53 which is unreachable from the
     container's network namespace) and writes them into the container's
@@ -460,8 +478,8 @@ Notes:
 
 ## R10 — Delete (`sbxctl delete {name}`)
 
-Permanently removes all files associated with a single sandbox. Mirrors the
-steps in R11 (complete removal) but scoped to one sandbox.
+Permanently removes binary artifacts for a single sandbox while preserving
+its configuration files.
 
 1. Check if running; if yes, print:
    `"sandbox '{name}' is running; stop it first with 'sbxctl stop {name}'"` and exit 1
@@ -470,16 +488,12 @@ steps in R11 (complete removal) but scoped to one sandbox.
    sudo rm -rf "$ROOT_DIR/rootfs-{name}"
    sudo rm -f  "$ROOT_DIR/rootfs-{name}.base.tar.zst"
    ```
-3. Remove per-sandbox conf files:
-   ```bash
-   rm -f  "$ROOT_DIR/conf/{name}.conf" \
-          "$ROOT_DIR/conf/{name}.packages" \
-          "$ROOT_DIR/conf/{name}.mounts"
-   ```
+3. List any found per-sandbox conf files in `conf/` and inform the user that
+   they are being kept (not deleted).
 4. Remove the host network bridge if it lingers:
    nspawn normally tears it down on stop, but if it remains:
    ```bash
-   sudo ip link delete vz-opqu-{name} 2>/dev/null || true
+   sudo ip link delete vz-{zone_name} 2>/dev/null || true
    ```
 5. Remove a stuck transient systemd unit if it remains:
    ```bash
@@ -488,8 +502,6 @@ steps in R11 (complete removal) but scoped to one sandbox.
 
 - Steps 4 and 5 are best-effort: failures are silently ignored since the
   network interface and unit may already be gone.
-- Missing conf files (e.g. no `.packages` or `.mounts`) are silently ignored
-  by `rm -f`.
 - `pkg-cache/` and `conf/global.conf` are shared across sandboxes and are
   never removed by `sbxctl delete`.
 

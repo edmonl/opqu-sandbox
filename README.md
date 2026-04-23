@@ -19,7 +19,7 @@ The main entrypoint is [`sbxctl`](./sbxctl).
 
 Sandbox names:
 
-- must be 1 to 7 characters
+- must be 1 to 12 characters
 - may contain lowercase letters, numbers, and `-`
 
 ## Requirements

@@ -40,7 +40,7 @@ Configuration:
     {name}.mounts     Bind mounts in host_path:container_path[:ro] format
 
 Notes:
-  Sandbox names must be 1-7 characters of [a-z0-9-].
+  Sandbox names must be 1-12 characters of [a-z0-9-].
   'create' requires a root path without whitespace.
   Most commands use sudo because the container runs without user namespaces.
 EOF
@@ -74,8 +74,8 @@ validate_name() {
   local name="$1"
   local length="${#name}"
 
-  if [[ ! "$name" =~ ^[a-z0-9-]{1,7}$ ]]; then
-    error "sandbox name '$name' is invalid (${length} characters); must be 1–7 characters, lowercase alphanumeric and hyphens only"
+  if [[ ! "$name" =~ ^[a-z0-9-]{1,12}$ ]]; then
+    error "sandbox name '$name' is invalid (${length} characters); must be 1–12 characters, lowercase alphanumeric and hyphens only"
     exit 1
   fi
 }
@@ -112,8 +112,27 @@ machine_name() {
   printf 'opqu-sbx-%s' "$1"
 }
 
+zone_name() {
+  local name="$1"
+  local base_prefix="opqu"
+  local full="${base_prefix}-${name}"
+
+  if [[ ${#full} -le 12 ]]; then
+    echo "$full"
+  else
+    local available=$((12 - ${#name}))
+    if [[ $available -ge 2 ]]; then
+      echo "${base_prefix:0:$((available - 1))}-${name}"
+    elif [[ $available -eq 1 ]]; then
+      echo "o${name}"
+    else
+      echo "${name:0:12}"
+    fi
+  fi
+}
+
 bridge_name() {
-  printf 'vz-opqu-%s' "$1"
+  printf 'vz-%s' "$(zone_name "$1")"
 }
 
 default_snapshot_path() {
@@ -339,7 +358,7 @@ cmd_start() {
     --boot \
     --machine="$machine" \
     --directory="$ROOT_DIR/rootfs-$name" \
-    --network-zone="opqu-$name" \
+    --network-zone="$(zone_name "$name")" \
     --resolv-conf=replace-uplink \
     "${MOUNT_FLAGS[@]}" \
     "${PORT_FLAGS[@]}" \
@@ -507,12 +526,24 @@ cmd_delete() {
     exit 1
   fi
 
-  if ! rm -f \
-    "$ROOT_DIR/conf/$name.conf" \
-    "$ROOT_DIR/conf/$name.packages" \
-    "$ROOT_DIR/conf/$name.mounts"; then
-    error "failed to remove config files for sandbox '$name'"
-    exit 1
+  # Keep config files but inform the user
+  local -a config_files=(
+    "$ROOT_DIR/conf/$name.conf"
+    "$ROOT_DIR/conf/$name.packages"
+    "$ROOT_DIR/conf/$name.mounts"
+  )
+  local found_configs=()
+  for f in "${config_files[@]}"; do
+    if [[ -f "$f" ]]; then
+      found_configs+=("$(basename "$f")")
+    fi
+  done
+
+  if [[ ${#found_configs[@]} -gt 0 ]]; then
+    printf "Keeping configuration files in conf/:\n"
+    for f in "${found_configs[@]}"; do
+      printf "  %s\n" "$f"
+    done
   fi
 
   bridge="$(bridge_name "$name")"
