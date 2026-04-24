@@ -275,7 +275,7 @@ cmd_create() {
   require_space_free_root_dir
 
   if [[ -d "$rootfs" ]]; then
-    error "sandbox '$name' already exists; run 'sbxctl reset $name' to wipe it"
+    error "sandbox '$name' already exists"
     exit 1
   fi
 
@@ -342,6 +342,12 @@ cmd_create() {
 cmd_start() {
   local name="$1"
   local machine
+  local rootfs="$ROOT_DIR/rootfs-$name"
+
+  if [[ ! -d "$rootfs" ]]; then
+    error "sandbox '$name' does not exist"
+    exit 1
+  fi
 
   load_global_config
   load_sandbox_config "$name"
@@ -357,7 +363,7 @@ cmd_start() {
     systemd-nspawn \
     --boot \
     --machine="$machine" \
-    --directory="$ROOT_DIR/rootfs-$name" \
+    --directory="$rootfs" \
     --network-zone="$(zone_name "$name")" \
     --resolv-conf=replace-uplink \
     "${MOUNT_FLAGS[@]}" \
@@ -394,7 +400,7 @@ cmd_reset() {
   local machine
 
   if is_running "$name"; then
-    error "sandbox '$name' is running; stop it first with 'sbxctl stop $name'"
+    error "sandbox '$name' is running; stop it first"
     exit 1
   fi
 
@@ -421,7 +427,7 @@ cmd_snapshot() {
   local tmp_output
 
   if is_running "$name"; then
-    error "sandbox '$name' is running; stop it first with 'sbxctl stop $name'"
+    error "sandbox '$name' is running; stop it first"
     exit 1
   fi
 
@@ -462,7 +468,7 @@ cmd_restore() {
   local found_rootfs=0
 
   if is_running "$name"; then
-    error "sandbox '$name' is running; stop it first with 'sbxctl stop $name'"
+    error "sandbox '$name' is running; stop it first"
     exit 1
   fi
 
@@ -512,7 +518,7 @@ cmd_delete() {
   local machine
 
   if is_running "$name"; then
-    error "sandbox '$name' is running; stop it first with 'sbxctl stop $name'"
+    error "sandbox '$name' is running; stop it first"
     exit 1
   fi
 
