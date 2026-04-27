@@ -15,18 +15,18 @@ Usage:
   sbxctl [--root PATH] snapshot {name} [output_path]
   sbxctl [--root PATH] restore {name} {snapshot_path}
   sbxctl [--root PATH] delete {name}
-  sbxctl [--root PATH] status
+  sbxctl [--root PATH] status [name]
 
 Commands:
   create    Bootstrap a new sandbox and save its clean base image
   start     Boot a sandbox with configured mounts, ports, and optional audio
-  shell     Open a shell or run a command as CONTAINER_USER inside a running sandbox
+  shell     Open a shell or run a command as SANDBOX_USER inside a running sandbox
   stop      Power off a running sandbox
   reset     Restore a sandbox from its clean base image
   snapshot  Save a stopped sandbox rootfs to a tar.zst archive
   restore   Replace a sandbox rootfs from a snapshot archive
   delete    Remove a sandbox, its base tarball, and per-sandbox config files
-  status    List currently running opqu sandboxes
+  status    Show global health check or status of a specific sandbox
 
 Configuration:
   Root directory defaults to \$PWD and may be overridden by:
@@ -34,7 +34,7 @@ Configuration:
     2. OPQU_SBX_ROOT=/path/to/root
 
   Optional files under ROOT/conf/:
-    global.conf       Global defaults such as DISTRO, MIRROR, VARIANT, CONTAINER_USER
+    global.conf       Global defaults such as DISTRO, MIRROR, VARIANT, SANDBOX_USER
     {name}.conf       Sandbox runtime settings such as PORTS and AUDIO (default: no)
     {name}.packages   Extra packages to install during create, one per line
     {name}.mounts     Bind mounts in host_path:container_path[:ro] format
@@ -84,15 +84,15 @@ load_global_config() {
   DISTRO=trixie
   MIRROR=http://deb.debian.org/debian
   VARIANT=standard
-  CONTAINER_USER=""
+  SANDBOX_USER=""
 
   if [[ -f "$ROOT_DIR/conf/global.conf" ]]; then
     # shellcheck disable=SC1091
     source "$ROOT_DIR/conf/global.conf"
   fi
 
-  if [[ -z "${CONTAINER_USER:-}" ]]; then
-    CONTAINER_USER="$(whoami)"
+  if [[ -z "${SANDBOX_USER:-}" ]]; then
+    SANDBOX_USER="$(whoami)"
   fi
 }
 
@@ -266,6 +266,7 @@ cmd_create() {
   local tarball="$ROOT_DIR/rootfs-$name.base.tar.zst"
   local include_list=""
   local -a mmdebstrap_args=()
+  local -a debootstrap_args=()
   local enable_networkd_hook
   local create_user_hook
   local cache_in_hook
@@ -281,12 +282,12 @@ cmd_create() {
 
   load_global_config
 
-  if ! id "$CONTAINER_USER" >/dev/null 2>&1; then
-    error "CONTAINER_USER '$CONTAINER_USER' does not exist on the host; create it first"
+  if ! id "$SANDBOX_USER" >/dev/null 2>&1; then
+    error "SANDBOX_USER '$SANDBOX_USER' does not exist on the host; create it first"
     exit 1
   fi
 
-  uid="$(id -u "$CONTAINER_USER")"
+  uid="$(id -u "$SANDBOX_USER")"
 
   if ! sudo mkdir -p "$ROOT_DIR/pkg-cache"; then
     error "failed to create pkg-cache directory"
@@ -296,40 +297,77 @@ cmd_create() {
   load_sandbox_config "$name"
   include_list="$(build_include_arg "$name")"
 
-  mmdebstrap_args=(
-    "--variant=$VARIANT"
-    "--skip=essential/unlink"
-    "--setup-hook=mkdir -p \"\$1/var/cache/apt/archives/\""
-  )
+  if command -v mmdebstrap >/dev/null 2>&1; then
+    mmdebstrap_args=(
+      "--variant=$VARIANT"
+      "--skip=essential/unlink"
+      "--setup-hook=mkdir -p \"\$1/var/cache/apt/archives/\""
+    )
 
-  printf -v cache_in_hook 'sync-in %q /var/cache/apt/archives/' "$ROOT_DIR/pkg-cache"
-  printf -v cache_out_hook 'sync-out /var/cache/apt/archives %q' "$ROOT_DIR/pkg-cache"
-  mmdebstrap_args+=(
-    "--setup-hook=$cache_in_hook"
-    "--customize-hook=$cache_out_hook"
-  )
+    printf -v cache_in_hook 'sync-in %q /var/cache/apt/archives/' "$ROOT_DIR/pkg-cache"
+    printf -v cache_out_hook 'sync-out /var/cache/apt/archives %q' "$ROOT_DIR/pkg-cache"
+    mmdebstrap_args+=(
+      "--setup-hook=$cache_in_hook"
+      "--customize-hook=$cache_out_hook"
+    )
 
-  # shellcheck disable=SC2016
-  printf -v enable_networkd_hook 'chroot "$1" systemctl enable systemd-networkd'
-  # shellcheck disable=SC2016
-  printf -v create_user_hook \
-    'chroot "$1" /bin/sh -c %q' \
-    "useradd -m -u $uid -s /bin/bash $CONTAINER_USER && passwd -l root && passwd -l $CONTAINER_USER"
-  mmdebstrap_args+=(
-    "--customize-hook=$enable_networkd_hook"
-    "--customize-hook=$create_user_hook"
-  )
+    # shellcheck disable=SC2016
+    printf -v enable_networkd_hook 'chroot "$1" systemctl enable systemd-networkd'
+    # shellcheck disable=SC2016
+    printf -v create_user_hook \
+      'chroot "$1" /bin/sh -c %q' \
+      "useradd -m -u $uid -s /bin/bash $SANDBOX_USER && passwd -l root && passwd -l $SANDBOX_USER"
+    mmdebstrap_args+=(
+      "--customize-hook=$enable_networkd_hook"
+      "--customize-hook=$create_user_hook"
+    )
 
-  if [[ -n "$include_list" ]]; then
-    mmdebstrap_args+=("--include=$include_list")
-  fi
+    if [[ -n "$include_list" ]]; then
+      mmdebstrap_args+=("--include=$include_list")
+    fi
 
-  if ! sudo mmdebstrap \
-    "${mmdebstrap_args[@]}" \
-    "$DISTRO" \
-    "$rootfs" \
-    "$MIRROR"; then
-    error "bootstrapping sandbox '$name' failed"
+    if ! sudo mmdebstrap \
+      "${mmdebstrap_args[@]}" \
+      "$DISTRO" \
+      "$rootfs" \
+      "$MIRROR"; then
+      error "bootstrapping sandbox '$name' with mmdebstrap failed"
+      exit 1
+    fi
+  elif command -v debootstrap >/dev/null 2>&1; then
+    log "mmdebstrap not found, falling back to debootstrap..."
+
+    debootstrap_args=(
+      "--variant=$VARIANT"
+    )
+
+    if [[ -n "$include_list" ]]; then
+      debootstrap_args+=("--include=$include_list")
+    fi
+
+    if ! sudo debootstrap \
+      "${debootstrap_args[@]}" \
+      "$DISTRO" \
+      "$rootfs" \
+      "$MIRROR"; then
+      error "bootstrapping sandbox '$name' with debootstrap failed"
+      exit 1
+    fi
+
+    # Enable networking
+    if ! sudo chroot "$rootfs" systemctl enable systemd-networkd; then
+      error "failed to enable systemd-networkd"
+      exit 1
+    fi
+
+    # Create user and lock root
+    local user_script="useradd -m -u $uid -s /bin/bash $SANDBOX_USER && passwd -l root && passwd -l $SANDBOX_USER"
+    if ! sudo chroot "$rootfs" /bin/sh -c "$user_script"; then
+      error "failed to create sandbox user"
+      exit 1
+    fi
+  else
+    error "neither mmdebstrap nor debootstrap found in PATH"
     exit 1
   fi
 
@@ -379,7 +417,7 @@ cmd_shell() {
   load_global_config
   machine="$(machine_name "$name")"
 
-  exec sudo machinectl shell "$CONTAINER_USER@$machine" "$@"
+  exec sudo machinectl shell "$SANDBOX_USER@$machine" "$@"
 }
 
 cmd_stop() {
@@ -559,27 +597,128 @@ cmd_delete() {
 }
 
 cmd_status() {
-  local machine_list
-  local header
-  local matched_lines
-  local count
+  local name="$1"
 
-  if ! machine_list="$(machinectl list 2>/dev/null)"; then
-    error "failed to query sandbox status with machinectl"
-    exit 1
-  fi
+  if [[ -z "$name" ]]; then
+    printf "%s\n" "--- Host Commands ---"
+    local commands=(systemctl systemd-nspawn systemd-run machinectl tar zstd ip)
+    for c in "${commands[@]}"; do
+      status="OK"
+      if ! command -v "$c" >/dev/null 2>&1; then
+        status="MISSING"
+      fi
+      printf "%-18s %s\n" "$c:" "$status"
+    done
 
-  header="$(printf '%s\n' "$machine_list" | sed -n '1p')"
-  matched_lines="$(printf '%s\n' "$machine_list" | awk 'NR > 1 && /^opqu-sbx-/')"
+    mm_status="MISSING"
+    if command -v mmdebstrap >/dev/null 2>&1; then
+      mm_status="OK"
+    fi
+    printf "%-18s %s (Primary)\n" "mmdebstrap:" "$mm_status"
 
-  printf '%s\n' "$header"
-  if [[ -n "$matched_lines" ]]; then
-    printf '%s\n' "$matched_lines"
-    count="$(printf '%s\n' "$matched_lines" | wc -l | tr -d ' ')"
+    deb_status="MISSING"
+    if command -v debootstrap >/dev/null 2>&1; then
+      deb_status="OK"
+    fi
+    printf "%-18s %s (Fallback)\n" "debootstrap:" "$deb_status"
+
+    printf "\n%s\n" "--- Networking ---"
+    networkd_status="INACTIVE"
+    if systemctl is-active --quiet systemd-networkd; then
+      networkd_status="ACTIVE"
+    fi
+    printf "%-18s %s\n" "systemd-networkd:" "$networkd_status"
+
+    ip_forward_status="DISABLED"
+    if [[ -f /proc/sys/net/ipv4/ip_forward ]]; then
+      if [[ $(< /proc/sys/net/ipv4/ip_forward) == "1" ]]; then
+        ip_forward_status="ENABLED"
+      fi
+    fi
+    printf "%-18s %s\n" "IP Forwarding:" "$ip_forward_status"
+
+    printf "\n%s\n" "--- Container User ---"
+    load_global_config
+    if id "$SANDBOX_USER" >/dev/null 2>&1; then
+      printf "SANDBOX_USER '%s': OK (UID: %s)\n" "$SANDBOX_USER" "$(id -u "$SANDBOX_USER")"
+    else
+      printf "SANDBOX_USER '%s': MISSING (does not exist on host)\n" "$SANDBOX_USER"
+    fi
+
+    printf "\n%s\n" "--- Existing Rootfs ---"
+    local rootfs_found=0
+    # Use globbing to list directories starting with rootfs- in the root directory
+    for dir in "$ROOT_DIR"/rootfs-*; do
+      if [[ -d "$dir" ]]; then
+        basename "$dir"
+        rootfs_found=1
+      fi
+    done
+
+    if [[ $rootfs_found -eq 0 ]]; then
+      printf "(none)\n"
+    fi
+
+    printf "\n%s\n" "--- Running Sandboxes ---"
+    local machine_list
+    local header
+    local matched_lines
+    local count
+
+    if ! machine_list="$(machinectl list 2>/dev/null)"; then
+      error "failed to query sandbox status with machinectl"
+      exit 1
+    fi
+
+    header="$(printf '%s\n' "$machine_list" | sed -n '1p')"
+    matched_lines="$(printf '%s\n' "$machine_list" | awk 'NR > 1 && /^opqu-sbx-/')"
+
+    printf '%s\n' "$header"
+    if [[ -n "$matched_lines" ]]; then
+      printf '%s\n' "$matched_lines"
+      count="$(printf '%s\n' "$matched_lines" | wc -l | tr -d ' ')"
+    else
+      count=0
+    fi
+    printf '%s machines listed.\n' "$count"
   else
-    count=0
+    printf "Sandbox: %s\n" "$name"
+
+    if [[ -d "$ROOT_DIR/rootfs-$name" ]]; then
+      printf "Existence:   EXISTS\n"
+    else
+      printf "Existence:   MISSING\n"
+    fi
+
+    if [[ -f "$ROOT_DIR/rootfs-$name.base.tar.zst" ]]; then
+      printf "Base Image:  EXISTS\n"
+    else
+      printf "Base Image:  MISSING\n"
+    fi
+
+    if is_running "$name"; then
+      printf "Running:     YES\n"
+    else
+      printf "Running:     NO\n"
+    fi
+
+    load_sandbox_config "$name"
+    if [[ -n "${PORTS:-}" ]]; then
+      printf "Ports:       %s\n" "$PORTS"
+    else
+      printf "Ports:       (none)\n"
+    fi
+
+    printf "Configuration:\n"
+    local configs=("$name.conf" "$name.packages" "$name.mounts")
+    for c in "${configs[@]}"; do
+      status="MISSING"
+      if [[ -f "$ROOT_DIR/conf/$c" ]]; then
+        status="EXISTS"
+      fi
+      printf "  %-12s %s\n" "$c:" "$status"
+    done
   fi
-  printf '%s machines listed.\n' "$count"
 }
 
 main() {
@@ -640,9 +779,12 @@ main() {
       path_arg="$3"
       ;;
     status)
-      if [[ $# -ne 1 ]]; then
+      if [[ $# -ne 1 && $# -ne 2 ]]; then
         usage
         exit 1
+      fi
+      if [[ $# -eq 2 ]]; then
+        validate_name "$name"
       fi
       ;;
     *)
@@ -666,7 +808,7 @@ main() {
     snapshot) cmd_snapshot "$name" "$path_arg" ;;
     restore) cmd_restore "$name" "$path_arg" ;;
     delete) cmd_delete "$name" ;;
-    status) cmd_status ;;
+    status) cmd_status "$name" ;;
   esac
 }
 

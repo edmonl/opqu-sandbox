@@ -32,7 +32,7 @@ Host environment:
 
 Required host commands:
 
-- `mmdebstrap`
+- `mmdebstrap` (recommended) or `debootstrap` (fallback)
 - `systemd-nspawn`
 - `systemd-run`
 - `machinectl`
@@ -85,7 +85,7 @@ mkdir -p conf
 DISTRO=trixie
 MIRROR=http://deb.debian.org/debian
 VARIANT=standard
-CONTAINER_USER=your-user
+SANDBOX_USER=your-user
 ```
 
 If `conf/global.conf` is omitted:
@@ -93,7 +93,7 @@ If `conf/global.conf` is omitted:
 - `DISTRO=trixie`
 - `MIRROR=http://deb.debian.org/debian`
 - `VARIANT=standard`
-- `CONTAINER_USER=$(whoami)`
+- `SANDBOX_USER=$(whoami)`
 
 4. See the built-in help for commands and examples:
 
@@ -128,7 +128,7 @@ PORTS='tcp:8080:8080 udp:5353:5353 tcp:5432:5432'
 AUDIO=no
 ```
 
-- `PORTS` forwards host ports into the sandbox; entries use `[protocol:]host_port[:container_port]`, protocol may be `tcp` or `udp`, omitting it defaults to `tcp`, and omitting `container_port` uses the same value as `host_port`
+- `PORTS` maps host ports into the sandbox; entries use `[protocol:]host_port[:container_port]`, protocol may be `tcp` or `udp`, omitting it defaults to `tcp`, and omitting `container_port` uses the same value as `host_port`
 - `AUDIO=yes` enables PipeWire socket binding and adds `pipewire-pulse` at create time; audio is disabled by default (`AUDIO=no`). If you enable audio after the sandbox is created, you must manually install `pipewire-pulse` inside the sandbox using a root shell (e.g., `sudo machinectl shell root@opqu-sbx-<name>`).
 
 ### `conf/<name>.packages`

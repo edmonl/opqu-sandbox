@@ -3,68 +3,8 @@
 ## Stack
 - Debian trixie (Debian 13, stable as of mid-2025)
 - mmdebstrap + systemd-nspawn (no user namespaces; real host UIDs inside container)
-- All global names (bridges, systemd units, machine names) prefixed with `opqu-sbx-`
-
-Required host commands:
-- `mmdebstrap`
-- `systemd-nspawn`
-- `systemd-run`
-- `machinectl`
-- `tar` with Zstandard support
-- `zstd`
-- `ip`
-- `systemctl`
-
----
-
-## Name Validation
-
-All `sbxctl` commands that take a `{name}` argument must validate it before
-doing anything else:
-
-- Allowed characters: lowercase alphanumeric and hyphens (`[a-z0-9-]`)
-- Maximum length: 12 characters (calculated to ensure the `vz-` bridge prefix
-  and network zone name stay within Linux's 15-character interface name limit)
-- Must not be empty
-
-If validation fails, print a clear error and exit 1:
-```
-"sandbox name '{name}' is invalid ({length} characters); must be 1–12 characters, lowercase alphanumeric and hyphens only"
-```
-
-
-
-```
-{root}/
-├── pkg-cache/                    # shared .deb cache across all sandboxes
-├── rootfs-{name}/                # per-sandbox live rootfs
-├── rootfs-{name}.base.tar.zst    # clean-slate snapshot for reset
-└── conf/
-    ├── global.conf               # distro, mirror, variant, container user
-    ├── {name}.conf               # per-sandbox: ports, audio flag
-    ├── {name}.packages           # per-sandbox extra packages (optional)
-    └── {name}.mounts             # per-sandbox bind mounts (optional)
-```
-
-All sandbox paths in `sbxctl` are resolved relative to a root directory:
-```bash
-ROOT_DIR="$(cd "${OPQU_SBX_ROOT:-$PWD}" && pwd)"
-```
-- Default root: current working directory
-- Environment override: `OPQU_SBX_ROOT=/path/to/sandboxes`
-- CLI override: `sbxctl --root /path/to/sandboxes ...`
-- If both are set, `--root` takes precedence over `OPQU_SBX_ROOT`
-
-No system-wide installation required. Do not hardcode absolute paths.
-Because `sbxctl create` uses mmdebstrap `sync-in`/`sync-out` special hooks for
-`pkg-cache/`, the root directory path must not contain whitespace. If it does,
-`sbxctl create` must print a clear error and exit 1 before doing anything
-else.
-
-`pkg-cache/`, `rootfs-{name}/`, and `rootfs-{name}.base.tar.zst` are
-root-managed artifacts. `conf/` remains user-managed.
-
----
+- Machine names and systemd units are prefixed with `opqu-sbx-`
+- Network bridges are prefixed with `vz-` and use a shortened zone name (see R3)
 
 ## R1 — Bootstrapping (`sbxctl create {name}`)
 
@@ -75,12 +15,12 @@ root-managed artifacts. `conf/` remains user-managed.
   tarball. This is expected and acceptable.
 - Source `conf/global.conf` if it exists; all values have defaults so the file
   is optional. Defaults: `DISTRO=trixie`, `MIRROR=http://deb.debian.org/debian`,
-  `VARIANT=standard`, `CONTAINER_USER=$(whoami)`.
-- Resolve `CONTAINER_USER` (defaulting to `$(whoami)` if unset),
-  then verify the user exists on the host with `id "$CONTAINER_USER"`.
+  `VARIANT=standard`, `SANDBOX_USER=$(whoami)`.
+- Resolve `SANDBOX_USER` (defaulting to `$(whoami)` if unset),
+  then verify the user exists on the host with `id "$SANDBOX_USER"`.
   If the user does not exist, print a clear error and exit 1 before doing
   anything else:
-  `"CONTAINER_USER '{name}' does not exist on the host; create it first"`
+  `"SANDBOX_USER '{name}' does not exist on the host; create it first"`
   This check must happen before mmdebstrap runs, since the user's UID is
   embedded in the bootstrap hook and cannot be corrected afterwards without
   a full re-bootstrap.
@@ -97,7 +37,9 @@ root-managed artifacts. `conf/` remains user-managed.
   final list is non-empty, pass as a comma-separated list via `--include`.
   If the file does not exist or is empty after stripping (and `AUDIO=no`),
   omit `--include` entirely.
-- Run mmdebstrap with both customize hooks in a single invocation:
+- Run `mmdebstrap` if available. If `mmdebstrap` is missing from the host, fall
+  back to `debootstrap`.
+- **If using `mmdebstrap`**: Run with both customize hooks in a single invocation:
   ```bash
   sudo mmdebstrap \
     --variant=$VARIANT \
@@ -107,13 +49,35 @@ root-managed artifacts. `conf/` remains user-managed.
     --setup-hook='sync-in "$ROOT_DIR/pkg-cache" /var/cache/apt/archives/' \
     --customize-hook='sync-out /var/cache/apt/archives "$ROOT_DIR/pkg-cache"' \
     --customize-hook='chroot "$1" systemctl enable systemd-networkd' \
-    --customize-hook="chroot \"$1\" /bin/sh -c 'useradd -m -u $(id -u "$CONTAINER_USER") -s /bin/bash $CONTAINER_USER \
+    --customize-hook="chroot \"$1\" /bin/sh -c 'useradd -m -u $(id -u "$SANDBOX_USER") -s /bin/bash $SANDBOX_USER \
       && passwd -l root \
-      && passwd -l $CONTAINER_USER'" \
+      && passwd -l $SANDBOX_USER'" \
     $DISTRO \
     "$ROOT_DIR/rootfs-{name}" \
     "$MIRROR"
   ```
+- **If using `debootstrap` (fallback)**: Run in sequence since it lacks hooks:
+  1. Bootstrap the base:
+     ```bash
+     sudo debootstrap \
+       --variant=$VARIANT \
+       [--include={package-list}] \
+       $DISTRO \
+       "$ROOT_DIR/rootfs-{name}" \
+       "$MIRROR"
+     ```
+  2. Enable networking:
+     ```bash
+     sudo chroot "$ROOT_DIR/rootfs-{name}" systemctl enable systemd-networkd
+     ```
+  3. Create the user and lock root:
+     ```bash
+     sudo chroot "$ROOT_DIR/rootfs-{name}" /bin/sh -c "useradd -m -u $(id -u "$SANDBOX_USER") -s /bin/bash $SANDBOX_USER \
+       && passwd -l root \
+       && passwd -l $SANDBOX_USER"
+     ```
+  Note: `debootstrap` does not support the shared `pkg-cache/` logic; caches
+  are ignored during fallback.
   - `--variant=$VARIANT` controls the baseline package set, read from
     `conf/global.conf`. Default is `standard`, which provides a complete,
     friction-free base system (systemd, networking tools, curl, sudo, etc.)
@@ -134,7 +98,7 @@ root-managed artifacts. `conf/` remains user-managed.
   - The first hook enables systemd-networkd so networking is live on first
     boot with no manual setup. Because mmdebstrap hooks run on the host side,
     the command explicitly uses `chroot "$1"` to target the new rootfs.
-  - The second hook creates the container user. `CONTAINER_USER` and its UID
+  - The second hook creates the container user. `SANDBOX_USER` and its UID
     are resolved on the host before mmdebstrap runs. The hook explicitly
     enters the target rootfs via `chroot "$1"` before running `useradd` and
     `passwd`, so those commands affect the container image rather than the
@@ -144,7 +108,7 @@ root-managed artifacts. `conf/` remains user-managed.
   - `root` is locked (password disabled) — the only way to get a root shell
     inside is `sudo machinectl shell root@opqu-sbx-{name}` from the host,
     which already requires host sudo; no escalation path from inside.
-  - `CONTAINER_USER` is also locked; entry is always via `machinectl shell`
+  - `SANDBOX_USER` is also locked; entry is always via `machinectl shell`
     which does not require a password.
 - Create base tarball immediately after bootstrap:
   ```bash
@@ -168,123 +132,8 @@ outside path expands in `sbxctl` but the inside path remains literal:
 
 ---
 
-## R2 — User Model
-
-No user namespaces are used. UIDs inside the container are real host UIDs.
-
-| Inside container | Host UID | Notes |
-|---|---|---|
-| `root` (UID 0) | 0 (real host root) | Password locked; reachable only via host sudo |
-| `CONTAINER_USER` (e.g. UID 1000) | 1000 (same user on host) | Default shell entry point; password locked |
-
-Key properties:
-- `CONTAINER_USER` inside container = same UID on host = bind-mounted files
-  owned correctly on both sides, no remapping required
-- `root` inside container = real host root; protected by locking the password
-  and requiring host-level sudo to reach
-- `CONTAINER_USER` has no sudo access inside the container; no escalation path
-  from inside. Note: `sudo` may be present depending on `VARIANT` (it is
-  included in `standard`), but `CONTAINER_USER` is never added to sudoers —
-  the mmdebstrap hooks deliberately omit this, so the absence of privilege
-  escalation is by omission, not by an explicit deny rule
-
-`CONTAINER_USER` is configured in `conf/global.conf` and defaults to
-`$(whoami)` at runtime if left blank.
-
-**Prerequisite:** `CONTAINER_USER` must already exist as a real user on the
-host at the time `sbxctl create` is run. The user's UID is baked into the
-bootstrap hook; if the user is absent, mmdebstrap will fail with a cryptic
-error. `sbxctl create` checks this explicitly and fails early with a clear
-message (see R1).
-
----
-
-## R3 — Networking
-
-- Each sandbox uses a network zone name calculated from the `{name}`.
-  - To stay under the 15-character Linux interface name limit (including the
-    mandatory `vz-` prefix for bridges), the zone prefix `opqu-` is dynamically
-    shortened if the sandbox name is long.
-  - Calculation:
-    1. If `opqu-{name}` is ≤ 12 chars, use `opqu-{name}`.
-    2. Else if `available = (12 - length({name}))` is ≥ 2, use a truncated
-       `opqu` prefix with a hyphen to keep total length at 12
-       (e.g., `opq-{name}`, `op-{name}`, `o-{name}`).
-    3. Else if `available` is 1, use `o{name}`.
-    4. Else, use the first 12 characters of `{name}`.
-  - Host auto-creates bridge `vz-{zone_name}` and runs a DHCP server on it.
-  - Container runs `systemd-networkd` (enabled at bootstrap) as DHCP client.
-  - Outbound traffic is NAT'd by the host automatically — no config needed.
-  - Note: the bridge name `vz-{zone_name}` is guaranteed to be ≤ 15 characters.
-- DNS: pass `--resolv-conf=replace-uplink` to nspawn
-...
-### Name Validation Examples
-
-Sandbox names must match `^[a-z0-9-]{1,12}$`.
-- `test` (4) → Bridge: `vz-opqu-test` (12 chars)
-- `12345678` (8) → Bridge: `vz-opq-12345678` (15 chars)
-- `1234567890` (10) → Bridge: `vz-o-1234567890` (15 chars)
-- `12345678901` (11) → Bridge: `vz-o12345678901` (15 chars)
-- `123456789012` (12) → Bridge: `vz-123456789012` (15 chars)
-
-  - nspawn reads the host's real upstream DNS servers (bypassing
-    systemd-resolved's stub at 127.0.0.53 which is unreachable from the
-    container's network namespace) and writes them into the container's
-    `/etc/resolv.conf` — DNS works automatically with no daemon inside
-- Port forwarding declared in `conf/{name}.conf`:
-  ```bash
-  PORTS="tcp:8080:8080 tcp:5432:5432"
-  ```
-  Each entry becomes a `--port=` flag in the nspawn invocation.
-  Multiple sandboxes can run simultaneously without port collisions since
-  each has its own IP on its own bridge. However, if two sandboxes declare
-  the same host-side port, nspawn will fail at start time — avoiding this
-  is the user's responsibility.
-
----
-
-## R4 — Bind Mounts
-
-Declared in `conf/{name}.mounts`, one entry per line:
-```
-# host_path:container_path[:ro]
-/home/user/projects:/projects
-/home/user/data:/data:ro
-```
-- Lines starting with `#` and blank lines are ignored
-- `:ro` suffix → `--bind-ro=`, otherwise `--bind=`
-- The script reads this file at start time and builds flags dynamically
-- If `conf/{name}.mounts` does not exist, no bind mounts are added
-- Because container UIDs match host UIDs, file ownership is transparent
-  across the mount boundary — no remapping needed
-- To change mounts: edit the file, stop and restart the container
-
----
-
 ## R5 — Lifecycle
 
-### Daemonizing
-`systemd-nspawn --boot` does not self-daemonize. Use `systemd-run` to
-launch it as a transient systemd unit on the host:
-
-```bash
-sudo systemd-run \
-  --unit="opqu-sbx-{name}" \
-  --description="opqu-sandbox {name}" \
-  --collect \
-  systemd-nspawn \
-    --boot \
-    --machine=opqu-sbx-{name} \
-    --directory="$ROOT_DIR/rootfs-{name}" \
-    --network-zone=opqu-{name} \
-    --resolv-conf=replace-uplink \
-    {bind-mount flags} \
-    {port flags} \
-    {audio flags}
-```
-
-- `sudo` is required because no user namespace isolation is used; nspawn
-  needs real root to set up the container environment
 - `--machine=opqu-sbx-{name}` registers the container with machinectl under
   that name; all machinectl commands use this name
 - Once registered, `machinectl shell opqu-sbx-{name}` and
@@ -297,9 +146,9 @@ sudo systemd-run \
 
 | Command | Implementation |
 |---|---|
-| `sbxctl create {name}` | mmdebstrap with cache + hooks + tarball (see R1) |
+| `sbxctl create {name}` | `mmdebstrap` (with cache + hooks) or `debootstrap` (fallback) + tarball (see R1) |
 | `sbxctl start {name}` | `sudo systemd-run` invocation above, assembled from conf + mounts |
-| `sbxctl shell {name} [command...]` | `sudo machinectl shell CONTAINER_USER@opqu-sbx-{name} [command...]` |
+| `sbxctl shell {name} [command...]` | `sudo machinectl shell SANDBOX_USER@opqu-sbx-{name} [command...]` |
 | `sbxctl stop {name}` | if running: `sudo machinectl poweroff opqu-sbx-{name}`; if already stopped: exit 0 |
 | `sbxctl reset {name}` | refuse if running + wipe rootfs + re-extract tarball (see R6) |
 | `sbxctl snapshot {name} [output_path]` | refuse if running + write user-owned snapshot tarball of current rootfs (see R8) |
@@ -322,8 +171,8 @@ unmodified. Do not capture or summarize output from `machinectl`, `systemd-run`,
 detects itself (wrong state, missing files, failed precondition checks).
 
 ### `sbxctl shell`
-Shells in or runs a command as `CONTAINER_USER` via `sudo machinectl shell CONTAINER_USER@opqu-sbx-{name} [command...]`.
-`CONTAINER_USER` is read from `conf/global.conf`; if the file does not exist or
+Shells in or runs a command as `SANDBOX_USER` via `sudo machinectl shell SANDBOX_USER@opqu-sbx-{name} [command...]`.
+`SANDBOX_USER` is read from `conf/global.conf`; if the file does not exist or
 the value is empty, it defaults to `$(whoami)` at runtime — the same defaulting
 logic as all other commands.
 If `sudo machinectl shell` fails for any reason (sandbox not running, user not found,
@@ -343,20 +192,38 @@ output passes through unmodified.
 A thin wrapper: conf and mounts are parsed, flags assembled, and
 `sudo systemd-run` is invoked. No precondition checks (missing rootfs,
 already running) are performed — errors from nspawn or systemd-run pass
-through directly. If `conf/{name}.conf` does not exist, defaults apply:
-no ports forwarded, no audio. If `conf/{name}.mounts` does not exist,
-no bind mounts are added.
+through directly.
+
 `sbxctl start` is intentionally not idempotent. If the sandbox is already
 running, `systemd-run` will fail with its own error (unit name already
 exists) and that error passes through unmodified. This is by design.
 
-### `sbxctl status`
-Shows only currently **running** sandboxes — stopped sandboxes are not listed.
-Runs `machinectl list` (with header) and filters output to lines matching
-`opqu-sbx-`, plus the header line (assumed to be the first line of output). The footer is recomputed and printed as
-`"{N} machines listed."` where N is the count of matched sandbox lines.
-If no sandboxes are running, only the header and `"0 machines listed."` are
-printed and the command exits 0.
+### `sbxctl status [name]`
+If no `{name}` is provided, it performs a global health check and lists
+running sandboxes:
+1.  **Check Host Commands**: Verify that all required commands (see
+    Prerequisites) are available in the PATH. Print each command followed by
+    `OK` or `MISSING`. For `mmdebstrap`/`debootstrap`, it's acceptable if
+    only one is present.
+2.  **Check Networking**:
+    - **systemd-networkd**: Check if the service is active via `systemctl`.
+    - **IP Forwarding**: Check if `/proc/sys/net/ipv4/ip_forward` is `1`.
+3.  **Check SANDBOX_USER**: Verify that the `SANDBOX_USER` (from
+    `global.conf` or default) exists on the host. Print the result.
+4.  **List Existing Rootfs**: List all directories in the `ROOT_DIR` that match
+    the pattern `rootfs-*`.
+5.  **List Running Sandboxes**: Runs `machinectl list` (with header) and
+    filters output to lines matching `opqu-sbx-`, plus the header line. The
+    footer is recomputed and printed as `"{N} machines listed."`.
+
+If a `{name}` is provided, it shows the status of that specific sandbox:
+1.  **Rootfs Existence**: Check if `rootfs-{name}/` exists.
+2.  **Base Image**: Check if `rootfs-{name}.base.tar.zst` exists.
+3.  **Running State**: Check if the sandbox is currently running via `machinectl`.
+4.  **Port Mapping**: List the ports configured for forwarding in
+    `conf/{name}.conf`.
+5.  **Configuration**: List which configuration files (`.conf`, `.packages`,
+    `.mounts`) exist for this sandbox.
 
 ---
 
@@ -371,7 +238,7 @@ sbxctl reset {name}
 3. `sudo tar --zstd -xf "$ROOT_DIR/rootfs-{name}.base.tar.zst" -C "$ROOT_DIR"`
 4. Remove host network bridge if it lingers (best-effort, same as `sbxctl delete`):
    ```bash
-   sudo ip link delete vz-opqu-{name} 2>/dev/null || true
+   sudo ip link delete "vz-{zone_name}" 2>/dev/null || true
    ```
 5. Remove a stuck transient systemd unit if it remains (best-effort, same as `sbxctl delete`):
    ```bash
@@ -410,8 +277,8 @@ This requires the rootfs to not exist; remove it manually first if needed:
   of the XDG spec, not a style choice. `$(id -u)` is expanded by the shell
   running `sbxctl` (the operator) before `sudo systemd-run` is called, so the
   socket bound belongs to whoever runs `sbxctl start`. In the common case the
-  operator and `CONTAINER_USER` are the same person, so audio works as expected.
-  If they differ (e.g. `CONTAINER_USER=alice` but operator is `bob`), the
+  operator and `SANDBOX_USER` are the same person, so audio works as expected.
+  If they differ (e.g. `SANDBOX_USER=alice` but operator is `bob`), the
   socket bound will be Bob's, and audio will likely not work inside the
   container. There is no automatic fix for this; it is an accepted limitation.
 - PulseAudio compat works via `pipewire-pulse` installed inside container
@@ -524,12 +391,13 @@ To fully remove everything related to this system:
    ```
 
 3. **Remove host network bridges if any linger after stop**
-   nspawn normally tears down `vz-opqu-{name}` bridges when a sandbox
+   nspawn normally tears down `vz-{zone_name}` bridges when a sandbox
    stops. If any remain:
    ```bash
-   sudo ip link delete vz-opqu-{name}
+   sudo ip link delete "vz-{zone_name}"
    ```
-   All opqu-sandbox bridges are identifiable by the `vz-opqu-` prefix.
+   All opqu-sandbox bridges are identifiable by the `vz-` prefix and their
+   correspondence to sandbox names (see R3).
 
 4. **Remove stuck transient systemd units if any remain**
    All opqu-sandbox units are identifiable by the `opqu-sbx-` prefix:
@@ -539,44 +407,6 @@ To fully remove everything related to this system:
 
 After step 2, nothing from this system remains on the host except transient
 network and unit state that clears automatically on next reboot.
-
----
-
-## Config File Formats
-
-### `conf/global.conf`
-This file is optional. If it does not exist, all values fall back to their
-defaults and the system works with zero configuration out of the box.
-
-```bash
-DISTRO=trixie
-MIRROR=http://deb.debian.org/debian
-VARIANT=standard            # standard = full usable base; required = minimal
-CONTAINER_USER=             # defaults to $(whoami) at runtime if left empty
-```
-
-### `conf/{name}.conf`
-```bash
-PORTS="tcp:8080:8080"   # space-separated, each becomes a --port= flag
-AUDIO=no                # yes to bind PipeWire socket
-```
-If this file does not exist, defaults apply: no ports forwarded, no audio.
-
-### `conf/{name}.packages`
-```
-# Extra packages for this sandbox only, installed on top of $VARIANT at create time.
-# If this file does not exist or is empty, --include is omitted from mmdebstrap.
-nodejs
-postgresql
-```
-
-### `conf/{name}.mounts`
-```
-# host_path:container_path[:ro]
-/home/user/projects:/projects
-/home/user/data:/data:ro
-```
-If this file does not exist, no bind mounts are added.
 
 ---
 
@@ -595,7 +425,7 @@ All commands follow this convention:
 
 ## Implementation Order
 
-1. `sbxctl create` — existence check, CONTAINER_USER host check, pkg-cache mkdir, mmdebstrap with cache + hooks (single invocation), tarball
+1. `sbxctl create` — existence check, SANDBOX_USER host check, pkg-cache mkdir, `mmdebstrap` (with cache + hooks) or `debootstrap` (fallback), tarball
 2. `sbxctl start` — conf parsing, missing-file defaults, mount/port flag assembly, sudo systemd-run launch
 3. `sbxctl stop` / `sbxctl shell` — machinectl wrappers; stop is idempotent, shell passes errors through
 4. `sbxctl reset` — running check + wipe + re-extract
