@@ -16,7 +16,7 @@ All configuration files are optional and located in the `conf/` directory relati
 
 ### `conf/global.conf`
 
-This file defines global settings for all sandboxes with the following default values:
+This file in dotenv format defines global settings for all sandboxes with the following default values:
 
 ```bash
 DISTRO=trixie
@@ -28,7 +28,7 @@ RESOLV_CONF=auto            # for `--resolv-conf` of `systemd-nspawn`
 
 ### `conf/{name}.conf`
 
-Per-sandbox runtime configuration. This file can also override global settings defined in `global.conf` (e.g., `DISTRO`, `MIRROR`, `VARIANT`, `SANDBOX_USER`, `RESOLV_CONF`).
+Per-sandbox runtime configuration in dotenv format. This file can also override global settings defined in `global.conf` (e.g., `DISTRO`, `MIRROR`, `VARIANT`, `SANDBOX_USER`, `RESOLV_CONF`).
 
 ```bash
 # Per-sandbox overrides (optional)
