@@ -3,7 +3,9 @@ package config
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -23,7 +25,7 @@ type Config struct {
 	Distro      string
 	Mirror      string
 	Variant     string
-	SandboxUser string
+	SandboxUser *user.User
 	Ports       []string
 	Audio       bool
 	ResolvConf  string
@@ -36,7 +38,7 @@ var (
 
 func loadConfFile(path string) (map[string]string, error) {
 	conf, err := godotenv.Read(path)
-	if err != nil && !os.IsNotExist(err) {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("failed to load %v: %w", path, err)
 	}
 
@@ -71,125 +73,168 @@ func LoadConf(rootDir, name string) (*Config, error) {
 		ResolvConf: "auto",
 	}
 
-	if err := applyConf(conf, rawConf); err != nil {
-		return nil, err
+	if v := rawConf["DISTRO"]; v != "" {
+		conf.Distro = v
+	}
+	if v := rawConf["MIRROR"]; v != "" {
+		conf.Mirror = v
+	}
+	if v := rawConf["VARIANT"]; v != "" {
+		conf.Variant = v
+	}
+	if v := strings.ToLower(rawConf["AUDIO"]); v != "" {
+		if _, yes := yesValues[v]; yes {
+			conf.Audio = true
+		} else if _, no := noValues[v]; no {
+			conf.Audio = false
+		} else {
+			return nil, errors.New("failed to load configuration: invalid value for AUDIO")
+		}
+	}
+	if v := rawConf["RESOLV_CONF"]; v != "" {
+		conf.ResolvConf = v
 	}
 
-	if u, err := user.Current(); err == nil {
-		conf.SandboxUser = u.Username
+	if v := rawConf["PORTS"]; v != "" {
+		ports, err := parsePorts(v)
+		if err != nil {
+			return nil, err
+		}
+		conf.Ports = ports
+	}
+
+	userName := rawConf["SANDBOX_USER"]
+	if userName == "" {
+		if u, err := user.Current(); err == nil {
+			conf.SandboxUser = u
+		} else {
+			return nil, fmt.Errorf("failed to get current user: %w", err)
+		}
+	} else if u, err := user.Lookup(userName); err == nil {
+		conf.SandboxUser = u
 	} else {
-		return nil, fmt.Errorf("failed to get current user: %w", err)
+		return nil, fmt.Errorf("failed to find user %v: %w", userName, err)
 	}
 
 	return conf, nil
 }
 
-func LoadPackages(rootDir, name string) []string {
-	if name == "" {
-		return nil
-	}
-	packagesPath := filepath.Join(rootDir, "conf", name+".packages")
-	return loadPackages(packagesPath)
-}
-
-func LoadMounts(rootDir, name string) []Mount {
-	if name == "" {
-		return nil
-	}
-	mountsPath := filepath.Join(rootDir, "conf", name+".mounts")
-	return loadMounts(mountsPath)
-}
-
-func applyConf(c *Config, env map[string]string) error {
-	if v := env["DISTRO"]; v != "" {
-		c.Distro = v
-	}
-	if v := env["MIRROR"]; v != "" {
-		c.Mirror = v
-	}
-	if v := env["VARIANT"]; v != "" {
-		c.Variant = v
-	}
-	if v := env["SANDBOX_USER"]; v != "" {
-		c.SandboxUser = v
-	}
-	if v := env["PORTS"]; v != "" {
-		ports, err := parsePorts(v)
-		if err != nil {
-			return err
-		}
-		c.Ports = ports
-	}
-	if v := strings.ToLower(env["AUDIO"]); v != "" {
-		_, ok := yesValues[v]
-		c.Audio = ok
-	}
-	if v := env["RESOLV_CONF"]; v != "" {
-		c.ResolvConf = v
-	}
-	return nil
-}
+var portRegex = regexp.MustCompile(`^((tcp|udp):)?\d+(:\d+)?$`)
 
 func parsePorts(v string) ([]string, error) {
 	var ports []string
 	for f := range strings.FieldsSeq(v) {
-		if !isValidPort(f) {
-			return nil, fmt.Errorf("invalid port mapping: %s", f)
+		if !portRegex.MatchString(f) {
+			return nil, fmt.Errorf("failed to load configuration: invalid port mapping: %v", f)
 		}
 		ports = append(ports, f)
 	}
 	return ports, nil
 }
 
-var portRegex = regexp.MustCompile(`^((tcp|udp):)?\d+(:\d+)?$`)
-
-func isValidPort(p string) bool {
-	return portRegex.MatchString(p)
-}
-
-func loadPackages(path string) []string {
-	var packages []string
+func loadLines(path string) ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return packages
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+
+		return nil, fmt.Errorf("failed to load %v: %w", path, err)
 	}
 	defer f.Close()
 
+	var lines []string
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
+		if idx := strings.Index(line, "#"); idx != -1 {
+			line = line[:idx]
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
 			continue
 		}
-		packages = append(packages, line)
+
+		lines = append(lines, line)
 	}
-	return packages
+
+	err = scanner.Err()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %v: %w", path, err)
+	}
+	return lines, nil
 }
 
-func loadMounts(path string) []Mount {
+var packageRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9+.-]+$`)
+
+func LoadPackages(rootDir, name string) ([]string, error) {
+	packagesPath := filepath.Join(rootDir, "conf", name+".packages")
+	packages, err := loadLines(packagesPath)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, p := range packages {
+		if !packageRegex.MatchString(p) {
+			return nil, fmt.Errorf("invalid package %v in %v", p, packagesPath)
+		}
+	}
+
+	return packages, nil
+}
+
+var mountRegex = regexp.MustCompile(`^([^:]*)(?::([^:]*))?(:ro)?$`)
+
+func LoadMounts(rootDir, name string, u *user.User) ([]Mount, error) {
+	mountsPath := filepath.Join(rootDir, "conf", name+".mounts")
+	mountLines, err := loadLines(mountsPath)
+	if err != nil {
+		return nil, err
+	}
+
 	var mounts []Mount
-	f, err := os.Open(path)
-	if err != nil {
-		return mounts
-	}
-	defer f.Close()
-
-	mountRegex := regexp.MustCompile(`^([^:]+):([^:]+)(:ro)?$`)
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+	for _, m := range mountLines {
+		matches := mountRegex.FindStringSubmatch(m)
+		if matches == nil {
+			return nil, fmt.Errorf("invalid mount %v in %v", m, mountsPath)
 		}
 
-		matches := mountRegex.FindStringSubmatch(line)
-		if len(matches) > 0 {
-			mounts = append(mounts, Mount{
-				HostPath:    matches[1],
-				SandboxPath: matches[2],
-				ReadOnly:    matches[3] == ":ro",
-			})
+		hostPath := strings.TrimSpace(matches[1])
+		sandboxPath := strings.TrimSpace(matches[2])
+		readOnly := matches[3] != ""
+
+		if hostPath == "" && sandboxPath == "" {
+			return nil, fmt.Errorf("invalid mount %v in %v", m, mountsPath)
 		}
+
+		if hostPath != "" {
+			if strings.HasPrefix(hostPath, "~") {
+				if len(hostPath) > 1 && hostPath[1] != os.PathSeparator {
+					return nil, fmt.Errorf("invalid mount %v in %v", m, mountsPath)
+				}
+
+				if u.HomeDir == "" {
+					return nil, fmt.Errorf("invalid mount %v in %v: user %v does not have a home directory", m, mountsPath, u.Username)
+				}
+
+				hostPath = filepath.Join(u.HomeDir, hostPath[min(2, len(hostPath)):])
+			} else if !filepath.IsAbs(hostPath) {
+				hostPath = filepath.Join(rootDir, hostPath)
+			}
+		}
+
+		if sandboxPath == "" {
+			sandboxPath = hostPath
+		} else if !filepath.IsAbs(sandboxPath) {
+			return nil, fmt.Errorf("invalid mount %v in %v: sandbox path must be absolute", m, mountsPath)
+		}
+
+		mounts = append(mounts, Mount{
+			HostPath:    hostPath,
+			SandboxPath: sandboxPath,
+			ReadOnly:    readOnly,
+		})
 	}
-	return mounts
+
+	return mounts, nil
 }

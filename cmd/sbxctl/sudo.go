@@ -12,7 +12,7 @@ import (
 func sudo() error {
 	// Only escalate if not already root
 	if os.Geteuid() != 0 {
-		fmt.Print("This operation requires root privileges. Press [Enter] directly to escalate, or Ctrl+C to cancel: ")
+		fmt.Print("This operation requires sudo. Press [Enter] directly to escalate, or Ctrl+C to cancel: ")
 		reader := bufio.NewReader(os.Stdin)
 		input, err := reader.ReadString('\n')
 		if err == io.EOF || strings.TrimSpace(input) != "" {
