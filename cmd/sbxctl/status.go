@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"strings"
 
@@ -91,20 +90,12 @@ func showGlobalStatus() error {
 		hasError = true
 	}
 
-	fmt.Print("\nSandbox User")
+	fmt.Print("\nSandbox User: ")
 	if conf, err := config.LoadConf(rootDir, ""); err == nil {
-		u, userErr := user.Lookup(conf.SandboxUser);
-		if  userErr == nil {
-			fmt.Printf("%v (UID: %v): OK\n", u.Name, u.Uid)
-		} else {
-			if _, res := errors.AsType[user.UnknownUserError](userErr); res {
-				fmt.Printf("%v: MISSING\n", conf.SandboxUser)
-			} else {
-				fmt.Printf(": failed to look up user %v on host: %v\n", conf.SandboxUser, userErr)
-			}
-		}
+		u := conf.SandboxUser
+		fmt.Printf("%v (UID: %v): OK\n", u.Username, u.Uid)
 	} else {
-		fmt.Printf(": failed to load default configuration: %v\n", err)
+		fmt.Printf("FAILED: %v\n", err)
 		hasError = true
 	}
 
@@ -123,7 +114,7 @@ func showGlobalStatus() error {
 	networkdStatus := "INACTIVE"
 	if err := exec.Command("systemctl", "is-active", "--quiet", "systemd-networkd").Run(); err == nil {
 		networkdStatus = "ACTIVE"
-	} else if _, ok := errors.AsType[*exec.ExitError](err); !ok {
+	} else if _, ok := err.(*exec.ExitError); !ok {
 		networkdStatus = fmt.Sprintf("failed to run systemctl: %v", err)
 	}
 	fmt.Printf("%-18v %v\n", "systemd-networkd:", networkdStatus)

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"strings"
 
@@ -46,10 +45,7 @@ var createCmd = &cobra.Command{
 			return err
 		}
 
-		u, err := user.Lookup(conf.SandboxUser)
-		if err != nil {
-			return fmt.Errorf("user %s does not exist on the host.", conf.SandboxUser)
-		}
+		u := conf.SandboxUser
 		uid := u.Uid
 
 		pkgCache := filepath.Join(rootDir, "pkg-cache")
@@ -57,7 +53,11 @@ var createCmd = &cobra.Command{
 			return fmt.Errorf("failed to create pkg-cache directory: %v", err)
 		}
 
-		packages := sandbox.BuildIncludeArg(config.LoadPackages(rootDir, name), conf.Audio)
+		pkgs, err := config.LoadPackages(rootDir, name)
+		if err != nil {
+			return err
+		}
+		packages := sandbox.BuildIncludeArg(pkgs, conf.Audio)
 
 		if _, err := exec.LookPath("mmdebstrap"); err == nil {
 			mmdebstrapArgs := []string{
@@ -75,7 +75,7 @@ var createCmd = &cobra.Command{
 			)
 
 			enableNetworkdHook := `chroot "$1" systemctl enable systemd-networkd`
-			createUserCmd := fmt.Sprintf("useradd -m -u %s -s /bin/bash %s && passwd -l root && passwd -l %s", uid, conf.SandboxUser, conf.SandboxUser)
+			createUserCmd := fmt.Sprintf("useradd -m -u %s -s /bin/bash %s && passwd -l root && passwd -l %s", uid, conf.SandboxUser.Username, conf.SandboxUser.Username)
 			createUserHook := fmt.Sprintf(`chroot "$1" /bin/sh -c %q`, createUserCmd)
 
 			mmdebstrapArgs = append(mmdebstrapArgs,
@@ -124,7 +124,7 @@ var createCmd = &cobra.Command{
 			}
 
 			// Create user and lock root
-			userScript := fmt.Sprintf("useradd -m -u %s -s /bin/bash %s && passwd -l root && passwd -l %s", uid, conf.SandboxUser, conf.SandboxUser)
+			userScript := fmt.Sprintf("useradd -m -u %s -s /bin/bash %s && passwd -l root && passwd -l %s", uid, conf.SandboxUser.Username, conf.SandboxUser.Username)
 			userCmd := exec.Command("chroot", rootfs, "/bin/sh", "-c", userScript)
 			if err := userCmd.Run(); err != nil {
 				return fmt.Errorf("failed to create sandbox user: %v", err)

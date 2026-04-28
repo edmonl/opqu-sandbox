@@ -35,7 +35,10 @@ var startCmd = &cobra.Command{
 			return err
 		}
 
-		mounts := config.LoadMounts(rootDir, name)
+		mounts, err := config.LoadMounts(rootDir, name, conf.SandboxUser)
+		if err != nil {
+			return err
+		}
 
 		machine := sandbox.MachineName(name)
 		zone := sandbox.ZoneName(name)
