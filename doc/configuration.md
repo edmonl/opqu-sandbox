@@ -14,9 +14,9 @@ The root directory is determined in the following order of precedence:
 
 All configuration files are optional and located in the `conf/` directory relative to the root directory. If a file does not exist, the system falls back to default values.
 
-### `conf/global.conf`
+### `conf/default`
 
-This file in dotenv format defines global settings for all sandboxes with the following default values:
+This file in dotenv format defines default settings for all sandboxes with the following default values:
 
 ```bash
 DISTRO=trixie
@@ -26,9 +26,11 @@ SANDBOX_USER=             # defaults to $(whoami) at runtime if left empty
 RESOLV_CONF=auto            # for `--resolv-conf` of `systemd-nspawn`
 ```
 
+An empty value means using the default.
+
 ### `conf/{name}.conf`
 
-Per-sandbox runtime configuration in dotenv format. This file can also override global settings defined in `global.conf` (e.g., `DISTRO`, `MIRROR`, `VARIANT`, `SANDBOX_USER`, `RESOLV_CONF`).
+Per-sandbox runtime configuration in dotenv format. This file can also override default configuration defined in `conf/default` (e.g., `DISTRO`, `MIRROR`, `VARIANT`, `SANDBOX_USER`, `RESOLV_CONF`).
 
 ```bash
 # Per-sandbox overrides (optional)

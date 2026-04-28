@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -25,138 +27,188 @@ var statusCmd = &cobra.Command{
 	},
 }
 
+func getCommandStatus(cmd string) string {
+	status := "OK"
+	if _, err := exec.LookPath(cmd); err != nil {
+		status = "MISSING"
+	}
+	return status
+}
+
 func showGlobalStatus() error {
-	fmt.Println("--- Host Commands ---")
-	commands := []string{
-		"systemctl", "systemd-nspawn", "systemd-run", "machinectl", "tar", "zstd", "ip",
-	}
+	var hasError bool
 
-	for _, c := range commands {
-		status := "OK"
-		if _, err := exec.LookPath(c); err != nil {
-			status = "MISSING"
-		}
-		fmt.Printf("%-18s %s\n", c+":", status)
-	}
-
-	mmStatus := "MISSING"
-	if _, err := exec.LookPath("mmdebstrap"); err == nil {
-		mmStatus = "OK"
-	}
-	fmt.Printf("%-18s %s (Primary)\n", "mmdebstrap:", mmStatus)
-
-	debStatus := "MISSING"
-	if _, err := exec.LookPath("debootstrap"); err == nil {
-		debStatus = "OK"
-	}
-	fmt.Printf("%-18s %s (Fallback)\n", "debootstrap:", debStatus)
-
-	fmt.Println("\n--- Networking ---")
-	networkdStatus := "INACTIVE"
-	if err := exec.Command("systemctl", "is-active", "--quiet", "systemd-networkd").Run(); err == nil {
-		networkdStatus = "ACTIVE"
-	}
-	fmt.Printf("%-18s %s\n", "systemd-networkd:", networkdStatus)
-
-	ipForwardStatus := "DISABLED"
-	if data, err := os.ReadFile("/proc/sys/net/ipv4/ip_forward"); err == nil {
-		if strings.TrimSpace(string(data)) == "1" {
-			ipForwardStatus = "ENABLED"
-		}
-	}
-	fmt.Printf("%-18s %s\n", "IP Forwarding:", ipForwardStatus)
-
-	fmt.Println("\n--- Sandbox User ---")
-	conf, err := config.Load(rootDir, "")
-	if err != nil {
-		fmt.Printf("Error loading global config: %v\n", err)
-	} else {
-		u, err := user.Lookup(conf.SandboxUser)
-		if err != nil {
-			fmt.Printf("SANDBOX_USER '%s': MISSING (does not exist on host)\n", conf.SandboxUser)
+	fmt.Println("Running Sandboxes:")
+	machineCmd := exec.Command("machinectl", "list", "--output=json")
+	if output, err := machineCmd.CombinedOutput(); err == nil {
+		var machines []map[string]any
+		if jsonErr := json.Unmarshal(output, &machines); jsonErr != nil {
+			fmt.Printf("failed to parsing machinectl JSON: %v\n", jsonErr)
+			hasError = true
 		} else {
-			fmt.Printf("SANDBOX_USER '%s': OK (UID: %s)\n", conf.SandboxUser, u.Uid)
+			// todo: review this
+			fmt.Printf("%-20v %-10v %-15v %-10v\n", "MACHINE", "CLASS", "SERVICE", "OS")
+			count := 0
+			for _, m := range machines {
+				machine, _ := m["machine"].(string)
+				if strings.HasPrefix(machine, "opqu-sbx-") {
+					class, _ := m["class"].(string)
+					service, _ := m["service"].(string)
+					osName, _ := m["os"].(string)
+					fmt.Printf("%-20v %-10v %-15v %-10v\n", machine, class, service, osName)
+					count++
+				}
+			}
+			fmt.Printf("\n%v machines listed.\n", count)
 		}
+	} else {
+		if len(output) > 0 {
+			fmt.Println(string(output))
+		}
+		fmt.Printf("failed to run machinectl: %v\n", err)
+		hasError = true
 	}
 
-	fmt.Println("\n--- Existing Rootfs ---")
-	entries, err := os.ReadDir(rootDir)
-	if err != nil {
-		fmt.Printf("Error reading root directory: %v\n", err)
-	} else {
+	fmt.Println("\nExisting Rootfs:")
+	rootfsDir := filepath.Join(rootDir, "rootfs")
+	if entries, err := os.ReadDir(rootfsDir); err == nil {
 		found := false
 		for _, entry := range entries {
-			if entry.IsDir() && strings.HasPrefix(entry.Name(), "rootfs-") {
-				fmt.Println(entry.Name())
+			name := entry.Name()
+			if entry.IsDir() {
+				fmt.Println(name)
 				found = true
 			}
 		}
 		if !found {
 			fmt.Println("(none)")
 		}
+	} else if os.IsNotExist(err) {
+		fmt.Println("(none)")
+	} else {
+		fmt.Printf("failed to read sandbox rootfs directory: %v\n", err)
+		hasError = true
 	}
 
-	fmt.Println("\n--- Running Sandboxes ---")
-	machineCmd := exec.Command("machinectl", "list") // todo: json is preferred for all machinectl output
-	output, err := machineCmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to query sandbox status with machinectl: %v", err)
-	}
-
-	lines := strings.Split(string(output), "\n")
-	if len(lines) > 0 {
-		header := lines[0]
-		fmt.Println(header)
-
-		count := 0
-		for i := 1; i < len(lines); i++ {
-			line := strings.TrimSpace(lines[i])
-			if strings.HasPrefix(line, "opqu-sbx-") {
-				fmt.Println(lines[i])
-				count++
+	fmt.Print("\nSandbox User")
+	if conf, err := config.LoadConf(rootDir, ""); err == nil {
+		u, userErr := user.Lookup(conf.SandboxUser);
+		if  userErr == nil {
+			fmt.Printf("%v (UID: %v): OK\n", u.Name, u.Uid)
+		} else {
+			if _, res := errors.AsType[user.UnknownUserError](userErr); res {
+				fmt.Printf("%v: MISSING\n", conf.SandboxUser)
+			} else {
+				fmt.Printf(": failed to look up user %v on host: %v\n", conf.SandboxUser, userErr)
 			}
 		}
-		fmt.Printf("%d machines listed.\n", count)
+	} else {
+		fmt.Printf(": failed to load default configuration: %v\n", err)
+		hasError = true
 	}
 
+	fmt.Println("\n--- Host Commands ---")
+	commands := []string{
+		"systemctl", "systemd-nspawn", "systemd-run", "machinectl", "tar", "zstd", "ip",
+	}
+	for _, c := range commands {
+		status := getCommandStatus(c)
+		fmt.Printf("%-18v %v\n", c+":", status)
+	}
+	fmt.Printf("%-18v %v (Primary)\n", "mmdebstrap:", getCommandStatus("mmdebstrap"))
+	fmt.Printf("%-18v %v (Fallback)\n", "debootstrap:", getCommandStatus("debootstrap"))
+
+	fmt.Println("\n--- Networking ---")
+	networkdStatus := "INACTIVE"
+	if err := exec.Command("systemctl", "is-active", "--quiet", "systemd-networkd").Run(); err == nil {
+		networkdStatus = "ACTIVE"
+	} else if _, ok := errors.AsType[*exec.ExitError](err); !ok {
+		networkdStatus = fmt.Sprintf("failed to run systemctl: %v", err)
+	}
+	fmt.Printf("%-18v %v\n", "systemd-networkd:", networkdStatus)
+
+	ipForwardStatus := "DISABLED"
+	if data, err := os.ReadFile("/proc/sys/net/ipv4/ip_forward"); err == nil {
+		if strings.TrimSpace(string(data)) == "1" {
+			ipForwardStatus = "ENABLED"
+		}
+	} else {
+		ipForwardStatus = fmt.Sprintf("failed to read /proc/sys/net/ipv4/ip_forward: %v", err)
+		hasError = true
+	}
+	fmt.Printf("%-18v %v\n", "IP Forwarding:", ipForwardStatus)
+
+
+	if hasError {
+		return errors.New("status gathering encountered issues")
+	}
 	return nil
 }
+
 
 func showSandboxStatus(name string) error {
 	if err := sandbox.ValidateName(name); err != nil {
 		return err
 	}
 
-	fmt.Printf("Sandbox: %s\n", name)
+	var errs []string
+	fmt.Printf("Sandbox: %v\n", name)
 
-	rootfs := filepath.Join(rootDir, "rootfs-"+name)
+	rootfs := filepath.Join(rootDir, "rootfs", name)
 	if _, err := os.Stat(rootfs); err == nil {
 		fmt.Println("Rootfs Existence:   EXISTS")
 	} else {
 		fmt.Println("Rootfs Existence:   MISSING")
+		errs = append(errs, "rootfs missing")
 	}
 
-	tarball := filepath.Join(rootDir, fmt.Sprintf("rootfs-%s.base.tar.zst", name))
-	if _, err := os.Stat(tarball); err == nil {
-		fmt.Println("Base Image:  EXISTS") // todo: printout the base image name and check if it's a file
+	tarball := filepath.Join(rootDir, "rootfs", fmt.Sprintf("%s.base.tar.zst", name))
+	if info, err := os.Stat(tarball); err == nil {
+		if info.Mode().IsRegular() {
+			fmt.Printf("Base Image:  EXISTS (%v)\n", filepath.Base(tarball))
+		} else {
+			fmt.Printf("Base Image:  EXISTS but is not a regular file (%v)\n", filepath.Base(tarball))
+			errs = append(errs, "base image is not a regular file")
+		}
 	} else {
 		fmt.Println("Base Image:  MISSING")
+		errs = append(errs, "base image missing")
 	}
 
 	running, err := sandbox.IsRunning(name)
 	if err != nil {
 		fmt.Printf("Running:     ERROR (%v)\n", err)
+		errs = append(errs, fmt.Sprintf("failed to check if running: %v", err))
 	} else if running {
 		fmt.Println("Running:     YES")
 	} else {
 		fmt.Println("Running:     NO")
 	}
 
-	conf, err := config.Load(rootDir, name) // todo: should check runtime mapping instead of static file
-	if err == nil && conf.Ports != "" {
-		fmt.Printf("Ports:       %s\n", conf.Ports)
+	conf, err := config.LoadConf(rootDir, name)
+	if err == nil {
+		var displayPorts string
+		portSource := "(config)"
+
+		if running {
+			if rtPorts := getRuntimePorts(name); rtPorts != "" {
+				displayPorts = rtPorts
+				portSource = "(runtime)"
+			}
+		}
+
+		if displayPorts == "" && len(conf.Ports) > 0 {
+			displayPorts = strings.Join(conf.Ports, " ")
+		}
+
+		if displayPorts != "" {
+			fmt.Printf("Ports %-7v %v\n", portSource+":", displayPorts)
+		} else {
+			fmt.Println("Ports:       (none)")
+		}
 	} else {
-		fmt.Println("Ports:       (none)")
+		fmt.Println("Ports:       (unknown - config error)")
+		errs = append(errs, fmt.Sprintf("failed to load sandbox config: %v", err))
 	}
 
 	fmt.Println("Configuration:")
@@ -167,10 +219,34 @@ func showSandboxStatus(name string) error {
 		if _, err := os.Stat(path); err == nil {
 			status = "EXISTS"
 		}
-		fmt.Printf("  %-12s %s\n", c+":", status)
+		fmt.Printf("  %-12v %v\n", c+":", status)
 	}
 
+	if len(errs) > 0 {
+		return fmt.Errorf("sandbox status encountered issues:\n- %v", strings.Join(errs, "\n- "))
+	}
 	return nil
+}
+
+func getRuntimePorts(name string) string {
+	machine := sandbox.MachineName(name)
+	cmd := exec.Command("systemctl", "show", machine+".service", "-p", "ExecStart", "--value")
+	output, err := cmd.CombinedOutput()
+	if err != nil || len(output) == 0 {
+		return ""
+	}
+
+	outStr := string(output)
+	var ports []string
+	fields := strings.Fields(outStr)
+	for _, f := range fields {
+		if strings.HasPrefix(f, "--port=") {
+			p := strings.TrimPrefix(f, "--port=")
+			p = strings.TrimRight(p, ";")
+			ports = append(ports, p)
+		}
+	}
+	return strings.Join(ports, " ")
 }
 
 func init() {

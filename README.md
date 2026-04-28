@@ -58,17 +58,18 @@ When you run `sbxctl`, it manages sandbox data under the selected root directory
 ```text
 ROOT/
 ├── conf/
-│   ├── global.conf
+│   ├── default
 │   ├── <name>.conf
 │   ├── <name>.packages
 │   └── <name>.mounts
 ├── pkg-cache/
-├── rootfs-<name>/
-└── rootfs-<name>.base.tar.zst
+├── rootfs/
+│   ├── <name>/
+│   └── <name>.base.tar.zst
 ```
 
 - `conf/` is user-managed
-- `pkg-cache/`, `rootfs-*`, and `rootfs-*.base.tar.zst` are created and managed by the tool
+- `pkg-cache/` and the `rootfs/` directory are created and managed by the tool
 
 ## Getting Started
 
@@ -79,7 +80,7 @@ ROOT/
 mkdir -p conf
 ```
 
-3. Optionally create `conf/global.conf`:
+3. Optionally create `conf/default`:
 
 ```bash
 DISTRO=trixie
@@ -88,7 +89,7 @@ VARIANT=standard
 SANDBOX_USER=your-user
 ```
 
-If `conf/global.conf` is omitted:
+If `conf/default` is omitted:
 
 - `DISTRO=trixie`
 - `MIRROR=http://deb.debian.org/debian`

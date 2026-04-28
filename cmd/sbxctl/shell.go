@@ -15,12 +15,15 @@ var shellCmd = &cobra.Command{
 	Short: "Open a shell or run a command inside a running sandbox",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := sudo(); err != nil {
+			return err
+		}
 		name := args[0]
 		if err := sandbox.ValidateName(name); err != nil {
 			return err
 		}
 
-		conf, err := config.Load(rootDir, name)
+		conf, err := config.LoadConf(rootDir, name)
 		if err != nil {
 			return err
 		}

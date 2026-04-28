@@ -18,6 +18,9 @@ var createCmd = &cobra.Command{
 	Short: "Bootstrap a new sandbox and save its clean base image",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := sudo(); err != nil {
+			return err
+		}
 		name := args[0]
 		if err := sandbox.ValidateName(name); err != nil {
 			return err
@@ -27,14 +30,18 @@ var createCmd = &cobra.Command{
 			return fmt.Errorf("sandbox root '%s' contains whitespace; move it to a path without spaces", rootDir)
 		}
 
-		rootfs := filepath.Join(rootDir, "rootfs-"+name)
-		tarball := filepath.Join(rootDir, fmt.Sprintf("rootfs-%s.base.tar.zst", name))
+		rootfs := filepath.Join(rootDir, "rootfs", name)
+		tarball := filepath.Join(rootDir, "rootfs", fmt.Sprintf("%s.base.tar.zst", name))
 
 		if _, err := os.Stat(rootfs); err == nil {
 			return fmt.Errorf("sandbox '%s' already exists", name)
 		}
 
-		conf, err := config.Load(rootDir, name)
+		if err := os.MkdirAll(filepath.Dir(rootfs), 0755); err != nil {
+			return fmt.Errorf("failed to create rootfs directory: %v", err)
+		}
+
+		conf, err := config.LoadConf(rootDir, name)
 		if err != nil {
 			return err
 		}
@@ -50,7 +57,7 @@ var createCmd = &cobra.Command{
 			return fmt.Errorf("failed to create pkg-cache directory: %v", err)
 		}
 
-		packages := sandbox.BuildIncludeArg(conf)
+		packages := sandbox.BuildIncludeArg(config.LoadPackages(rootDir, name), conf.Audio)
 
 		if _, err := exec.LookPath("mmdebstrap"); err == nil {
 			mmdebstrapArgs := []string{
@@ -126,7 +133,7 @@ var createCmd = &cobra.Command{
 			return fmt.Errorf("neither mmdebstrap nor debootstrap found in PATH")
 		}
 
-		tarCmd := exec.Command("tar", "--zstd", "-cf", tarball, "-C", rootDir, "rootfs-"+name+"/")
+		tarCmd := exec.Command("tar", "--zstd", "-cf", tarball, "-C", filepath.Join(rootDir, "rootfs"), name+"/")
 		tarCmd.Stdout = os.Stdout
 		tarCmd.Stderr = os.Stderr
 

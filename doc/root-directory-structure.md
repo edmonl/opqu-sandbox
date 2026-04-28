@@ -7,10 +7,11 @@ The root directory stores everything `sbxctl` creates and manages. Deleting it m
 ```
 {root}/
 ├── pkg-cache/                    # shared .deb cache (auto-created, mmdebstrap only)
-├── rootfs-{name}/                # per-sandbox live rootfs (auto-created)
-├── rootfs-{name}.base.tar.zst    # clean-slate snapshot (auto-created)
+├── rootfs/                       # sandbox root filesystems
+│   ├── {name}/                   # per-sandbox live rootfs (auto-created)
+│   └── {name}.base.tar.zst       # clean-slate snapshot (auto-created)
 └── conf/                         # user-managed configuration (optional)
-    ├── global.conf               # global defaults
+    ├── default                   # global defaults
     ├── {name}.conf               # per-sandbox: ports, audio flag
     ├── {name}.packages           # per-sandbox extra packages
     └── {name}.mounts             # per-sandbox bind mounts
@@ -18,7 +19,7 @@ The root directory stores everything `sbxctl` creates and manages. Deleting it m
 
 ## Lifecycle and Ownership
 
-- **Auto-created artifacts**: `pkg-cache/`, `rootfs-{name}/`, and `rootfs-{name}.base.tar.zst` are created and managed by `sbxctl`. They are root-managed (require `sudo` for modification/deletion).
+- **Auto-created artifacts**: `pkg-cache/` and the `rootfs/` directory contents are created and managed by `sbxctl`. They are root-managed (require `sudo` for modification/deletion).
 - **User-managed configuration**: The `conf/` directory and all files within it are **entirely optional** and are **never automatically created** by `sbxctl`. They must be created manually by the user if custom settings are needed. If they are missing, `sbxctl` uses built-in defaults.
 
 ## Constraints

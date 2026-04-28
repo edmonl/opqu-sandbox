@@ -2,8 +2,6 @@ package sandbox
 
 import (
 	"testing"
-
-	"github.com/edmonl/opqu-sandbox/internal/config"
 )
 
 func TestValidateName(t *testing.T) {
@@ -70,12 +68,10 @@ func TestZoneNameSpecifics(t *testing.T) {
 }
 
 func TestBuildIncludeArg(t *testing.T) {
-	conf := &config.Config{
-		Packages: []string{"git", "curl", "git"},
-		Audio:    true,
-	}
+	packages := []string{"git", "curl", "git"}
+	audio := true
 
-	pkgs := BuildIncludeArg(conf)
+	pkgs := BuildIncludeArg(packages, audio)
 
 	if len(pkgs) != 3 {
 		t.Fatalf("Expected 3 packages, got %d (%v)", len(pkgs), pkgs)

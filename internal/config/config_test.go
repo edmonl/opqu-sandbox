@@ -68,13 +68,13 @@ func TestLoadConfig(t *testing.T) {
 	confDir := filepath.Join(tmpDir, "conf")
 	os.MkdirAll(confDir, 0755)
 
-	globalConf := "DISTRO=bullseye\nAUDIO=yes\n"
-	os.WriteFile(filepath.Join(confDir, "global.conf"), []byte(globalConf), 0644)
+	defaultConf := "DISTRO=bullseye\nAUDIO=yes\n"
+	os.WriteFile(filepath.Join(confDir, "default"), []byte(defaultConf), 0644)
 
-	nameConf := "PORTS=tcp:8080:80\n"
-	os.WriteFile(filepath.Join(confDir, "test.conf"), []byte(nameConf), 0644)
+	sandboxConf := "PORTS=tcp:8080:80\n"
+	os.WriteFile(filepath.Join(confDir, "test.conf"), []byte(sandboxConf), 0644)
 
-	conf, err := Load(tmpDir, "test")
+	conf, err := LoadConf(tmpDir, "test")
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -87,7 +87,21 @@ func TestLoadConfig(t *testing.T) {
 		t.Errorf("Expected audio to be true")
 	}
 
-	if conf.Ports != "tcp:8080:80" {
-		t.Errorf("Expected ports tcp:8080:80, got %s", conf.Ports)
+	if len(conf.Ports) != 1 || conf.Ports[0] != "tcp:8080:80" {
+		t.Errorf("Expected ports [tcp:8080:80], got %v", conf.Ports)
+	}
+}
+
+func TestInvalidPorts(t *testing.T) {
+	tmpDir := t.TempDir()
+	confDir := filepath.Join(tmpDir, "conf")
+	os.MkdirAll(confDir, 0755)
+
+	nameConf := "PORTS=invalid-port\n"
+	os.WriteFile(filepath.Join(confDir, "test.conf"), []byte(nameConf), 0644)
+
+	_, err := LoadConf(tmpDir, "test")
+	if err == nil {
+		t.Fatal("Expected error for invalid port mapping, but got none")
 	}
 }

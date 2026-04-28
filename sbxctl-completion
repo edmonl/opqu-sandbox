@@ -27,8 +27,8 @@ _sbxctl_completions() {
 
     # Function to list existing sandbox names
     _sbxctl_get_names() {
-        if [[ -d "$root_dir" ]]; then
-            find "$root_dir" -maxdepth 1 -name "rootfs-*" -type d 2>/dev/null | sed "s|.*/rootfs-||"
+        if [[ -d "$root_dir/rootfs" ]]; then
+            find "$root_dir/rootfs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed "s|.*/||"
         fi
     }
 

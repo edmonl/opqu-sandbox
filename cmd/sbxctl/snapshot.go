@@ -15,6 +15,9 @@ var snapshotCmd = &cobra.Command{
 	Short: "Save a stopped sandbox rootfs to a tar.zst archive",
 	Args:  cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := sudo(); err != nil {
+			return err
+		}
 		name := args[0]
 		if err := sandbox.ValidateName(name); err != nil {
 			return err
@@ -51,8 +54,8 @@ var snapshotCmd = &cobra.Command{
 		tmpPath := tmpFile.Name()
 		tmpFile.Close() // Close it since we'll redirect stdout of tar to it
 
-		// tar -I 'zstd -19 -T0' -cf - -C "$ROOT_DIR" "rootfs-$name/" > tmp_output
-		tarCmd := exec.Command("tar", "-I", "zstd -19 -T0", "-cf", "-", "-C", rootDir, "rootfs-"+name+"/")
+		// tar -I 'zstd -19 -T0' -cf - -C "$ROOT_DIR/rootfs" "$name/" > tmp_output
+		tarCmd := exec.Command("tar", "-I", "zstd -19 -T0", "-cf", "-", "-C", filepath.Join(rootDir, "rootfs"), name+"/")
 		outFile, err := os.OpenFile(tmpPath, os.O_WRONLY, 0644)
 		if err != nil {
 			os.Remove(tmpPath)

@@ -16,6 +16,9 @@ var restoreCmd = &cobra.Command{
 	Short: "Replace a sandbox rootfs from a snapshot archive",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := sudo(); err != nil {
+			return err
+		}
 		name := args[0]
 		snapshotPath := args[1]
 
@@ -45,7 +48,7 @@ var restoreCmd = &cobra.Command{
 		}
 
 		// Check snapshot contents
-		expectedRootfs := fmt.Sprintf("rootfs-%s/", name)
+		expectedRootfs := fmt.Sprintf("%s/", name)
 		tarCmd := exec.Command("tar", "--zstd", "-tf", snapshotPath)
 		output, err := tarCmd.Output()
 		if err != nil {
@@ -65,12 +68,12 @@ var restoreCmd = &cobra.Command{
 			return fmt.Errorf("snapshot '%s' does not contain top-level '%s'", snapshotPath, expectedRootfs)
 		}
 
-		rootfs := filepath.Join(rootDir, "rootfs-"+name)
+		rootfs := filepath.Join(rootDir, "rootfs", name)
 		if err := os.RemoveAll(rootfs); err != nil {
 			return fmt.Errorf("failed to remove rootfs for sandbox '%s': %v", name, err)
 		}
 
-		extractCmd := exec.Command("tar", "--zstd", "-xf", snapshotPath, "-C", rootDir)
+		extractCmd := exec.Command("tar", "--zstd", "-xf", snapshotPath, "-C", filepath.Join(rootDir, "rootfs"))
 		extractCmd.Stdout = os.Stdout
 		extractCmd.Stderr = os.Stderr
 

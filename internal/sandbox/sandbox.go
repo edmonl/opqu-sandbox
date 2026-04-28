@@ -5,8 +5,6 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
-
-	"github.com/edmonl/opqu-sandbox/internal/config"
 )
 
 var nameRegex = regexp.MustCompile(`^[a-z0-9-]{1,12}$`)
@@ -63,20 +61,20 @@ func IsRunning(name string) (bool, error) {
 	return false, nil
 }
 
-func BuildIncludeArg(conf *config.Config) []string {
-	var packages []string
+func BuildIncludeArg(packages []string, audio bool) []string {
+	var finalPkgs []string
 	seen := make(map[string]bool)
 
-	for _, pkg := range conf.Packages {
+	for _, pkg := range packages {
 		if !seen[pkg] {
-			packages = append(packages, pkg)
+			finalPkgs = append(finalPkgs, pkg)
 			seen[pkg] = true
 		}
 	}
 
-	if conf.Audio && !seen["pipewire-pulse"] {
-		packages = append(packages, "pipewire-pulse")
+	if audio && !seen["pipewire-pulse"] {
+		finalPkgs = append(finalPkgs, "pipewire-pulse")
 	}
 
-	return packages
+	return finalPkgs
 }

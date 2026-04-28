@@ -8,12 +8,12 @@
 
 ## R1 — Bootstrapping (`sbxctl create {name}`)
 
-- If `rootfs-{name}/` already exists, print a clear error and exit 1:
+- If `rootfs/{name}/` already exists, print a clear error and exit 1:
   `"sandbox '{name}' already exists; run 'sbxctl reset {name}' to wipe it"`
   Note: if a previous `sbxctl create` was run and the rootfs was later manually
   deleted but the tarball kept, running `sbxctl create` again will overwrite the
   tarball. This is expected and acceptable.
-- Source `conf/global.conf` if it exists; all values have defaults so the file
+- Source `conf/default` if it exists; all values have defaults so the file
   is optional. Defaults: `DISTRO=trixie`, `MIRROR=http://deb.debian.org/debian`,
   `VARIANT=standard`, `SANDBOX_USER=$(whoami)`.
 - Resolve `SANDBOX_USER` (defaulting to `$(whoami)` if unset),
@@ -53,7 +53,7 @@
       && passwd -l root \
       && passwd -l $SANDBOX_USER'" \
     $DISTRO \
-    "$ROOT_DIR/rootfs-{name}" \
+    "$ROOT_DIR/rootfs/{name}" \
     "$MIRROR"
   ```
 - **If using `debootstrap` (fallback)**: Run in sequence since it lacks hooks:
@@ -63,27 +63,27 @@
        --variant=$VARIANT \
        [--include={package-list}] \
        $DISTRO \
-       "$ROOT_DIR/rootfs-{name}" \
+       "$ROOT_DIR/rootfs/{name}" \
        "$MIRROR"
      ```
   2. Enable networking:
      ```bash
-     sudo chroot "$ROOT_DIR/rootfs-{name}" systemctl enable systemd-networkd
+     sudo chroot "$ROOT_DIR/rootfs/{name}" systemctl enable systemd-networkd
      ```
   3. Create the user and lock root:
      ```bash
-     sudo chroot "$ROOT_DIR/rootfs-{name}" /bin/sh -c "useradd -m -u $(id -u "$SANDBOX_USER") -s /bin/bash $SANDBOX_USER \
+     sudo chroot "$ROOT_DIR/rootfs/{name}" /bin/sh -c "useradd -m -u $(id -u "$SANDBOX_USER") -s /bin/bash $SANDBOX_USER \
        && passwd -l root \
        && passwd -l $SANDBOX_USER"
      ```
   Note: `debootstrap` does not support the shared `pkg-cache/` logic; caches
   are ignored during fallback.
   - `--variant=$VARIANT` controls the baseline package set, read from
-    `conf/global.conf`. Default is `standard`, which provides a complete,
+    `conf/default`. Default is `standard`, which provides a complete,
     friction-free base system (systemd, networking tools, curl, sudo, etc.)
     with no additional configuration needed. Users who want a leaner image
     can set `VARIANT=required` and manage extra packages via `{name}.packages`.
-  - `$DISTRO` and `$MIRROR` are also read from `conf/global.conf`.
+  - `$DISTRO` and `$MIRROR` are also read from `conf/default`.
   - The shared `pkg-cache/` is synchronized into
     `/var/cache/apt/archives/` at setup time and synchronized back out at
     the end via mmdebstrap's `sync-in`/`sync-out` special hooks.
@@ -112,8 +112,8 @@
     which does not require a password.
 - Create base tarball immediately after bootstrap:
   ```bash
-  sudo tar --zstd -cf "$ROOT_DIR/rootfs-{name}.base.tar.zst" \
-    -C "$ROOT_DIR" "rootfs-{name}/"
+  sudo tar --zstd -cf "$ROOT_DIR/rootfs/{name}.base.tar.zst" \
+    -C "$ROOT_DIR/rootfs" "{name}/"
   ```
   The tarball is root-managed for the same reason as the live rootfs.
 - Any unexpected error during bootstrapping must log a clear message and exit 1.
@@ -172,7 +172,7 @@ detects itself (wrong state, missing files, failed precondition checks).
 
 ### `sbxctl shell`
 Shells in or runs a command as `SANDBOX_USER` via `sudo machinectl shell SANDBOX_USER@opqu-sbx-{name} [command...]`.
-`SANDBOX_USER` is read from `conf/global.conf`; if the file does not exist or
+`SANDBOX_USER` is read from `conf/default`; if the file does not exist or
 the value is empty, it defaults to `$(whoami)` at runtime — the same defaulting
 logic as all other commands.
 If `sudo machinectl shell` fails for any reason (sandbox not running, user not found,
@@ -209,16 +209,15 @@ running sandboxes:
     - **systemd-networkd**: Check if the service is active via `systemctl`.
     - **IP Forwarding**: Check if `/proc/sys/net/ipv4/ip_forward` is `1`.
 3.  **Check SANDBOX_USER**: Verify that the `SANDBOX_USER` (from
-    `global.conf` or default) exists on the host. Print the result.
-4.  **List Existing Rootfs**: List all directories in the `ROOT_DIR` that match
-    the pattern `rootfs-*`.
+    `default` or default) exists on the host. Print the result.
+4.  **List Existing Rootfs**: List all directories in the `ROOT_DIR/rootfs/` subdirectory.
 5.  **List Running Sandboxes**: Runs `machinectl list` (with header) and
     filters output to lines matching `opqu-sbx-`, plus the header line. The
     footer is recomputed and printed as `"{N} machines listed."`.
 
 If a `{name}` is provided, it shows the status of that specific sandbox:
-1.  **Rootfs Existence**: Check if `rootfs-{name}/` exists.
-2.  **Base Image**: Check if `rootfs-{name}.base.tar.zst` exists.
+1.  **Rootfs Existence**: Check if `rootfs/{name}/` exists.
+2.  **Base Image**: Check if `rootfs/{name}.base.tar.zst` exists.
 3.  **Running State**: Check if the sandbox is currently running via `machinectl`.
 4.  **Port Mapping**: List the ports configured for forwarding in
     `conf/{name}.conf`.
@@ -234,8 +233,8 @@ sbxctl reset {name}
 ```
 1. Check if running; if yes, print:
    `"sandbox '{name}' is running; stop it first with 'sbxctl stop {name}'"` and exit 1
-2. `sudo rm -rf "$ROOT_DIR/rootfs-{name}"`
-3. `sudo tar --zstd -xf "$ROOT_DIR/rootfs-{name}.base.tar.zst" -C "$ROOT_DIR"`
+2. `sudo rm -rf "$ROOT_DIR/rootfs/{name}"`
+3. `sudo tar --zstd -xf "$ROOT_DIR/rootfs/{name}.base.tar.zst" -C "$ROOT_DIR/rootfs"`
 4. Remove host network bridge if it lingers (best-effort, same as `sbxctl delete`):
    ```bash
    sudo ip link delete "vz-{zone_name}" 2>/dev/null || true
@@ -255,7 +254,7 @@ re-bootstrap from scratch in that case.
 
 To fully re-bootstrap from scratch: run `sbxctl create {name}` again.
 This requires the rootfs to not exist; remove it manually first if needed:
-`sudo rm -rf sandboxes/rootfs-{name}/ sandboxes/rootfs-{name}.base.tar.zst`
+`sudo rm -rf sandboxes/rootfs/{name}/ sandboxes/rootfs/{name}.base.tar.zst`
 
 ---
 
@@ -301,19 +300,19 @@ archive. This does not replace the built-in base tarball used by `reset`.
      `./opqu-sbx-{name}.snapshot.tar.zst`
 3. If the output path already exists, print a clear error telling the user to
    move it away first, then exit 1
-4. Create a compressed tarball of `rootfs-{name}/` using Zstandard with a
+4. Create a compressed tarball of `rootfs/{name}/` using Zstandard with a
    high-compression setting
 5. If writing the snapshot succeeds but moving it into the final output path
    fails, keep the temporary snapshot file and print its path so the user can
    move or clean it up manually
 
 Notes:
-- The archive is user-managed, unlike `rootfs-{name}.base.tar.zst` which is
+- The archive is user-managed, unlike `rootfs/{name}.base.tar.zst` which is
   root-managed
 - Do not change ownership of files inside the archived rootfs; only the output
   archive file itself is expected to be owned by the invoking user
-- The archive contains the `rootfs-{name}/` directory itself, not only its
-  contents, so it can be extracted directly into `ROOT_DIR` during restore
+- The archive contains the `{name}/` directory itself, not only its
+  contents, so it can be extracted directly into `ROOT_DIR/rootfs` during restore
 - If the rootfs is missing or unreadable, let `tar` fail normally and pass
   its output through unmodified
 
@@ -329,9 +328,9 @@ Restores a user-created snapshot over the live rootfs. This is distinct from
 2. Before deleting anything, verify that `snapshot_path` exists, is a regular
    file, and is readable. If not, print a clear error and exit 1
 3. Before deleting anything, verify that the archive contains
-   `rootfs-{name}/` as a top-level entry. If not, print a clear error and exit 1
-4. `sudo rm -rf "$ROOT_DIR/rootfs-{name}"`
-5. `sudo tar --zstd -xf "{snapshot_path}" -C "$ROOT_DIR"`
+   `{name}/` as a top-level entry. If not, print a clear error and exit 1
+4. `sudo rm -rf "$ROOT_DIR/rootfs/{name}"`
+5. `sudo tar --zstd -xf "{snapshot_path}" -C "$ROOT_DIR/rootfs"`
 
 Notes:
 - `snapshot_path` is required and positional
@@ -339,7 +338,7 @@ Notes:
   deeper archive correctness remains the user's responsibility
 - No extra automation is performed; if extraction fails, `tar`'s own error
   output passes through and the command exits non-zero
-- Restoring a snapshot does not update or replace `rootfs-{name}.base.tar.zst`
+- Restoring a snapshot does not update or replace `rootfs/{name}.base.tar.zst`
 
 ---
 
@@ -352,8 +351,8 @@ its configuration files.
    `"sandbox '{name}' is running; stop it first with 'sbxctl stop {name}'"` and exit 1
 2. Remove the rootfs and base tarball:
    ```bash
-   sudo rm -rf "$ROOT_DIR/rootfs-{name}"
-   sudo rm -f  "$ROOT_DIR/rootfs-{name}.base.tar.zst"
+   sudo rm -rf "$ROOT_DIR/rootfs/{name}"
+   sudo rm -f  "$ROOT_DIR/rootfs/{name}.base.tar.zst"
    ```
 3. List any found per-sandbox conf files in `conf/` and inform the user that
    they are being kept (not deleted).
@@ -369,7 +368,7 @@ its configuration files.
 
 - Steps 4 and 5 are best-effort: failures are silently ignored since the
   network interface and unit may already be gone.
-- `pkg-cache/` and `conf/global.conf` are shared across sandboxes and are
+- `pkg-cache/` and `conf/default` are shared across sandboxes and are
   never removed by `sbxctl delete`.
 
 ---

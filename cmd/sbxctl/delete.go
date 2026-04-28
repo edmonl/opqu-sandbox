@@ -15,6 +15,9 @@ var deleteCmd = &cobra.Command{
 	Short: "Remove a sandbox, its base tarball, and network interfaces",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := sudo(); err != nil {
+			return err
+		}
 		name := args[0]
 		if err := sandbox.ValidateName(name); err != nil {
 			return err
@@ -29,12 +32,12 @@ var deleteCmd = &cobra.Command{
 			return fmt.Errorf("sandbox '%s' is running; stop it first", name)
 		}
 
-		rootfs := filepath.Join(rootDir, "rootfs-"+name)
+		rootfs := filepath.Join(rootDir, "rootfs", name)
 		if err := os.RemoveAll(rootfs); err != nil {
 			return fmt.Errorf("failed to remove rootfs for sandbox '%s': %v", name, err)
 		}
 
-		tarball := filepath.Join(rootDir, fmt.Sprintf("rootfs-%s.base.tar.zst", name))
+		tarball := filepath.Join(rootDir, "rootfs", fmt.Sprintf("%s.base.tar.zst", name))
 		if err := os.Remove(tarball); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("failed to remove base tarball for sandbox '%s': %v", name, err)
 		}

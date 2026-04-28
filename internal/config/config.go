@@ -1,7 +1,9 @@
+// Package config provides functions to load configuration from the sandbox root directory.
 package config
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -12,24 +14,55 @@ import (
 )
 
 type Mount struct {
-	HostPath      string
+	HostPath    string
 	SandboxPath string
-	ReadOnly      bool
+	ReadOnly    bool
 }
 
 type Config struct {
-	Distro        string
-	Mirror        string
-	Variant       string
-	SandboxUser   string
-	Ports         string
-	Audio         bool
-	ResolvConf    string
-	Packages      []string
-	Mounts        []Mount
+	Distro      string
+	Mirror      string
+	Variant     string
+	SandboxUser string
+	Ports       []string
+	Audio       bool
+	ResolvConf  string
 }
 
-func Load(rootDir, name string) (*Config, error) {
+var (
+	yesValues = map[string]struct{}{"yes": {}, "y": {}, "true": {}, "t": {}, "1": {}, "on": {}}
+	noValues  = map[string]struct{}{"no": {}, "n": {}, "false": {}, "f": {}, "0": {}, "off": {}}
+)
+
+func loadConfFile(path string) (map[string]string, error) {
+	conf, err := godotenv.Read(path)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("failed to load %v: %w", path, err)
+	}
+
+	return conf, nil
+}
+
+func LoadConf(rootDir, name string) (*Config, error) {
+	// Load default conf
+	rawConf, err := loadConfFile(filepath.Join(rootDir, "conf", "default"))
+	if err != nil {
+		return nil, err
+	}
+
+	// Load <name>.conf
+	if name != "" {
+		sandboxConf, err := loadConfFile(filepath.Join(rootDir, "conf", name+".conf"))
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range sandboxConf {
+			if v != "" {
+				rawConf[k] = v
+			}
+		}
+	}
+
 	conf := &Config{
 		Distro:     "trixie",
 		Mirror:     "http://deb.debian.org/debian",
@@ -38,58 +71,80 @@ func Load(rootDir, name string) (*Config, error) {
 		ResolvConf: "auto",
 	}
 
-	u, err := user.Current()
-	if err == nil {
+	if err := applyConf(conf, rawConf); err != nil {
+		return nil, err
+	}
+
+	if u, err := user.Current(); err == nil {
 		conf.SandboxUser = u.Username
-	}
-
-	// 1. Load global.conf
-	globalPath := filepath.Join(rootDir, "conf", "global.conf")
-	if _, err := os.Stat(globalPath); err == nil {
-		globalEnv, _ := godotenv.Read(globalPath)
-		applyEnv(conf, globalEnv)
-	}
-
-	// 2. Load <name>.conf, <name>.packages, <name>.mounts
-	if name != "" {
-		sandboxPath := filepath.Join(rootDir, "conf", name+".conf")
-		if _, err := os.Stat(sandboxPath); err == nil {
-			sandboxEnv, _ := godotenv.Read(sandboxPath)
-			applyEnv(conf, sandboxEnv)
-		}
-
-		packagesPath := filepath.Join(rootDir, "conf", name+".packages")
-		conf.Packages = loadPackages(packagesPath)
-
-		mountsPath := filepath.Join(rootDir, "conf", name+".mounts")
-		conf.Mounts = loadMounts(mountsPath)
+	} else {
+		return nil, fmt.Errorf("failed to get current user: %w", err)
 	}
 
 	return conf, nil
 }
 
-func applyEnv(c *Config, env map[string]string) {
-	if v, ok := env["DISTRO"]; ok {
+func LoadPackages(rootDir, name string) []string {
+	if name == "" {
+		return nil
+	}
+	packagesPath := filepath.Join(rootDir, "conf", name+".packages")
+	return loadPackages(packagesPath)
+}
+
+func LoadMounts(rootDir, name string) []Mount {
+	if name == "" {
+		return nil
+	}
+	mountsPath := filepath.Join(rootDir, "conf", name+".mounts")
+	return loadMounts(mountsPath)
+}
+
+func applyConf(c *Config, env map[string]string) error {
+	if v := env["DISTRO"]; v != "" {
 		c.Distro = v
 	}
-	if v, ok := env["MIRROR"]; ok {
+	if v := env["MIRROR"]; v != "" {
 		c.Mirror = v
 	}
-	if v, ok := env["VARIANT"]; ok {
+	if v := env["VARIANT"]; v != "" {
 		c.Variant = v
 	}
-	if v, ok := env["SANDBOX_USER"]; ok && v != "" {
+	if v := env["SANDBOX_USER"]; v != "" {
 		c.SandboxUser = v
 	}
-	if v, ok := env["PORTS"]; ok {
-		c.Ports = v
+	if v := env["PORTS"]; v != "" {
+		ports, err := parsePorts(v)
+		if err != nil {
+			return err
+		}
+		c.Ports = ports
 	}
-	if v, ok := env["AUDIO"]; ok {
-		c.Audio = (v == "yes")
+	if v := strings.ToLower(env["AUDIO"]); v != "" {
+		_, ok := yesValues[v]
+		c.Audio = ok
 	}
-	if v, ok := env["RESOLV_CONF"]; ok && v != "" {
+	if v := env["RESOLV_CONF"]; v != "" {
 		c.ResolvConf = v
 	}
+	return nil
+}
+
+func parsePorts(v string) ([]string, error) {
+	var ports []string
+	for f := range strings.FieldsSeq(v) {
+		if !isValidPort(f) {
+			return nil, fmt.Errorf("invalid port mapping: %s", f)
+		}
+		ports = append(ports, f)
+	}
+	return ports, nil
+}
+
+var portRegex = regexp.MustCompile(`^((tcp|udp):)?\d+(:\d+)?$`)
+
+func isValidPort(p string) bool {
+	return portRegex.MatchString(p)
 }
 
 func loadPackages(path string) []string {
@@ -130,9 +185,9 @@ func loadMounts(path string) []Mount {
 		matches := mountRegex.FindStringSubmatch(line)
 		if len(matches) > 0 {
 			mounts = append(mounts, Mount{
-				HostPath:      matches[1],
+				HostPath:    matches[1],
 				SandboxPath: matches[2],
-				ReadOnly:      matches[3] == ":ro",
+				ReadOnly:    matches[3] == ":ro",
 			})
 		}
 	}

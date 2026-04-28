@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
-	"strings"
 
 	"github.com/edmonl/opqu-sandbox/internal/config"
 	"github.com/edmonl/opqu-sandbox/internal/sandbox"
@@ -18,20 +17,25 @@ var startCmd = &cobra.Command{
 	Short: "Boot a sandbox with configured mounts, ports, and optional audio",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := sudo(); err != nil {
+			return err
+		}
 		name := args[0]
 		if err := sandbox.ValidateName(name); err != nil {
 			return err
 		}
 
-		rootfs := filepath.Join(rootDir, "rootfs-"+name)
+		rootfs := filepath.Join(rootDir, "rootfs", name)
 		if _, err := os.Stat(rootfs); err != nil {
 			return fmt.Errorf("sandbox '%s' does not exist", name)
 		}
 
-		conf, err := config.Load(rootDir, name)
+		conf, err := config.LoadConf(rootDir, name)
 		if err != nil {
 			return err
 		}
+
+		mounts := config.LoadMounts(rootDir, name)
 
 		machine := sandbox.MachineName(name)
 		zone := sandbox.ZoneName(name)
@@ -48,7 +52,7 @@ var startCmd = &cobra.Command{
 			"--resolv-conf=" + conf.ResolvConf,
 		}
 
-		for _, m := range conf.Mounts {
+		for _, m := range mounts {
 			if m.ReadOnly {
 				runArgs = append(runArgs, fmt.Sprintf("--bind-ro=%s:%s", m.HostPath, m.SandboxPath))
 			} else {
@@ -56,11 +60,8 @@ var startCmd = &cobra.Command{
 			}
 		}
 
-		if conf.Ports != "" {
-			ports := strings.Fields(conf.Ports)
-			for _, p := range ports {
-				runArgs = append(runArgs, "--port="+p)
-			}
+		for _, p := range conf.Ports {
+			runArgs = append(runArgs, "--port="+p)
 		}
 
 		if conf.Audio {
