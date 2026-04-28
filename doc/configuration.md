@@ -2,13 +2,13 @@
 
 ## Root Directory
 
-All sandbox paths for `sbxctl` are resolved relative to a [root directory](root-directory-structure.md).
+All sandbox paths for `sbxctl` are resolved relative to a sandbox [root directory](root-directory-structure.md).
 
 The root directory is determined in the following order of precedence:
 
-1.  **CLI override**: `sbxctl --root /path/to/sandboxes ...`
-2.  **Environment override**: `OPQU_SBX_ROOT=/path/to/sandboxes`
-3.  **Default**: The current working directory.
+1. **CLI override**: `sbxctl --root /path/to/sandboxes ...`
+2. **Environment override**: `OPQU_SBX_ROOT=/path/to/sandboxes`
+3. **Default**: The current working directory.
 
 ## Configuration Files
 
@@ -66,8 +66,21 @@ To change mounts, you may edit this file, stop and restart the sandbox.
 
 ```
 # host_path:sandbox_path[:ro]
-/home/user/projects:/projects
-/home/user/data:/data:ro
+/tmp/sandbox:/tmp
+/home/user/data:/readonly-data:ro
+~/folder-in-home-of-sandbox-user::ro # sandbox path is the same as the host path
+/tmp
 ```
 
-Lines starting with `#` and blank lines are ignored. File ownership stays the same  across the mount boundary (see [System Requirements](system-requirements.md#user-requirement)).
+Each mount must have either a non-empty host path or a non-empty sandbox path.
+
+About the host path:
+- Relative path is resolved with the sandbox root directory.
+- Empty path creates a scratch directory in `/var/tmp` on the host which is removed when the sandbox is stopped. This may be useful to inspect sandbox files when it is running.
+- `~` at the beginning resolves to the home directory of the sandbox user.
+
+About the sandbox path:
+- Must be absolute.
+- Treated as the same as the host path when omitted.
+
+Lines starting with `#` and blank lines are ignored. File ownership stays the same across the mount boundary (see [System Requirements](system-requirements.md#user-requirement)).

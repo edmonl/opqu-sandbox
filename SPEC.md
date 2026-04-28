@@ -368,7 +368,7 @@ its configuration files.
 
 - Steps 4 and 5 are best-effort: failures are silently ignored since the
   network interface and unit may already be gone.
-- `pkg-cache/` and `conf/default` are shared across sandboxes and are
+- `pkg-cache/` and `conf/` are shared across sandboxes and are
   never removed by `sbxctl delete`.
 
 ---

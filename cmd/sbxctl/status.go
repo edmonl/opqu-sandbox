@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/user"
@@ -83,7 +84,7 @@ func showGlobalStatus() error {
 		if !found {
 			fmt.Println("(none)")
 		}
-	} else if os.IsNotExist(err) {
+	} else if errors.Is(err, fs.ErrNotExist) {
 		fmt.Println("(none)")
 	} else {
 		fmt.Printf("failed to read sandbox rootfs directory: %v\n", err)
