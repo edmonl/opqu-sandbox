@@ -94,7 +94,6 @@ If `conf/default` is omitted:
 - `DISTRO=trixie`
 - `MIRROR=http://deb.debian.org/debian`
 - `VARIANT=standard`
-- `SANDBOX_USER=$(whoami)`
 
 4. See the built-in help for commands and examples:
 

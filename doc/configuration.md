@@ -22,7 +22,7 @@ This file in dotenv format defines default settings for *creating* sandboxes wit
 DISTRO=stable
 MIRROR=http://deb.debian.org/debian
 VARIANT=standard            # standard = full usable base; required = minimal
-SANDBOX_USER=             # defaults to $(whoami) at runtime if left empty
+SANDBOX_USER=               # defaults to the current user at runtime if left empty
 RESOLV_CONF=auto            # for `--resolv-conf` of `systemd-nspawn`
 ROOT_USER_PASSWORD=         # if empty, root password is disabled (locked)
 NETWORK_ZONE=opqu-sbx       # logical network group; max 12 characters

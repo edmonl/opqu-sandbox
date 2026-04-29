@@ -5,17 +5,31 @@
 ## Host Commands
 
 The following host commands are used by `sbxctl`:
-- `mmdebstrap`: Used to bootstrap the Debian rootfs securely and efficiently.
+- `mmdebstrap`: Used to provision the rootfs.
 - `debootstrap`: Used as a fallback if `mmdebstrap` is not available.
 - `systemd-nspawn`: The core container engine used to run the sandboxes.
-- `systemd-run`: Used to daemonize sandbox processes as transient systemd services.
+- `systemd-run`: Used to daemonize sandbox processes as `systemd` services.
 - `machinectl`: Used to manage container lifecycle and provide shell access.
-- `systemctl`: Used for managing and cleaning up transient systemd units.
-- `sudo`: Used when necessary and `sbxctl` is started without `sudo`.
+- `systemctl`: Used to manage `systemd` units.
+- `sudo`: Used when privileges are required and `sbxctl` is not started with `sudo`.
 - `su`: Used as a fallback when `sudo` is not available.
 
-Other commands that may be useful for extra administration:
-- `networkctl`: 
+Other commands that are not directly used but may be useful for administration:
+- `networkctl`: Check the status of virtual interfaces.
+- `ip`: Check network bridge and interface management.
+- `sysctl`: Check and configure IP forwarding.
+
+On Debian, these *optional priority* packages provide some of the commands:
+- `mmdebstrap`: provides `mmdebstrap`.
+- `debootstrap`: provides `debootstrap`.
+- `systemd-container`: provides `systemd-nspawn` and `machinectl`.
+- `sudo`: provides `sudo`.
+
+Standard Debian installation should already have these packages and commands available:
+- `systemd` (important): provides `systemd-run`, `systemctl`, `networkctl`, and `systemd-networkd`.
+- `iproute2` (important): provides `ip`.
+- `procps` (important): provides `sysctl`.
+- `util-linux` (required): provides `su`.
 
 ### Networking Requirements
 
