@@ -13,6 +13,8 @@ The following host commands are used:
 - `tar` (with Zstandard support) and `zstd`: Used for creating and extracting base images and snapshots.
 - `ip`: Used for managing and cleaning up network bridges.
 - `systemctl`: Used for managing and cleaning up transient systemd units.
+- `sudo`: Used when necessary and `sbxctl` is started without `sudo`.
+- `su`: Used as a fallback when `sudo` is not available.
 
 ### Networking Requirements
 
@@ -26,7 +28,7 @@ You may check if the service is already active by `systemctl status systemd-netw
 #### IP Forwarding
 For the host to act as a gateway for the sandboxes, the Linux kernel must allow packet forwarding between interfaces.
 To check it, `cat /proc/sys/net/ipv4/ip_forward` must return `1`.
-2.  **IP Forwarding**: IPv4 forwarding must be enabled in the kernel (`net.ipv4.ip_forward=1`).
+See man pages about `sysctl.d`, `sysctl.conf`, or `sysctl` if you need to change it or persist it by `net.ipv4.ip_forward=1`.
 
 #### Firewall Configuration
 

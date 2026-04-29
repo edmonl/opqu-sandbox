@@ -26,9 +26,10 @@ type Config struct {
 	Mirror      string
 	Variant     string
 	SandboxUser *user.User
-	Ports       []string
-	Audio       bool
-	ResolvConf  string
+	Ports        []string
+	Audio        bool
+	ResolvConf   string
+	RootPassword string
 }
 
 var (
@@ -94,6 +95,9 @@ func LoadConf(rootDir, name string) (*Config, error) {
 	if v := rawConf["RESOLV_CONF"]; v != "" {
 		conf.ResolvConf = v
 	}
+	if v := rawConf["ROOT_USER_PASSWORD"]; v != "" {
+		conf.RootPassword = v
+	}
 
 	if v := rawConf["PORTS"]; v != "" {
 		ports, err := parsePorts(v)
@@ -104,6 +108,10 @@ func LoadConf(rootDir, name string) (*Config, error) {
 	}
 
 	userName := rawConf["SANDBOX_USER"]
+	if userName == "" && os.Geteuid() == 0 {
+		userName = os.Getenv("SUDO_USER")
+	}
+
 	if userName == "" {
 		if u, err := user.Current(); err == nil {
 			conf.SandboxUser = u

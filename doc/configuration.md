@@ -24,13 +24,14 @@ MIRROR=http://deb.debian.org/debian
 VARIANT=standard            # standard = full usable base; required = minimal
 SANDBOX_USER=             # defaults to $(whoami) at runtime if left empty
 RESOLV_CONF=auto            # for `--resolv-conf` of `systemd-nspawn`
+ROOT_USER_PASSWORD=         # if empty, root password is disabled (locked)
 ```
 
 An empty value means using the default.
 
 ### `conf/{name}.conf`
 
-Per-sandbox runtime configuration in dotenv format. This file can also override default configuration defined in `conf/default` (e.g., `DISTRO`, `MIRROR`, `VARIANT`, `SANDBOX_USER`, `RESOLV_CONF`).
+Per-sandbox runtime configuration in dotenv format. This file can also override default configuration defined in `conf/default` (e.g., `DISTRO`, `MIRROR`, `VARIANT`, `SANDBOX_USER`, `RESOLV_CONF`, `ROOT_USER_PASSWORD`).
 
 ```bash
 # Per-sandbox overrides (optional)
