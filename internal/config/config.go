@@ -27,14 +27,13 @@ type Config struct {
 	Variant     string
 	SandboxUser *user.User
 	Ports        []string
-	Audio        bool
+	NetworkZone  string
 	ResolvConf   string
 	RootPassword string
 }
 
 var (
-	yesValues = map[string]struct{}{"yes": {}, "y": {}, "true": {}, "t": {}, "1": {}, "on": {}}
-	noValues  = map[string]struct{}{"no": {}, "n": {}, "false": {}, "f": {}, "0": {}, "off": {}}
+	zoneRegex = regexp.MustCompile(`^[a-z0-9-]+$`)
 )
 
 func loadConfFile(path string) (map[string]string, error) {
@@ -67,11 +66,11 @@ func LoadConf(rootDir, name string) (*Config, error) {
 	}
 
 	conf := &Config{
-		Distro:     "trixie",
-		Mirror:     "http://deb.debian.org/debian",
-		Variant:    "standard",
-		Audio:      false,
-		ResolvConf: "auto",
+		Distro:      "stable",
+		Mirror:      "http://deb.debian.org/debian",
+		Variant:     "standard",
+		NetworkZone: "opqu-sbx",
+		ResolvConf:  "auto",
 	}
 
 	if v := rawConf["DISTRO"]; v != "" {
@@ -83,14 +82,14 @@ func LoadConf(rootDir, name string) (*Config, error) {
 	if v := rawConf["VARIANT"]; v != "" {
 		conf.Variant = v
 	}
-	if v := strings.ToLower(rawConf["AUDIO"]); v != "" {
-		if _, yes := yesValues[v]; yes {
-			conf.Audio = true
-		} else if _, no := noValues[v]; no {
-			conf.Audio = false
-		} else {
-			return nil, errors.New("failed to load configuration: invalid value for AUDIO")
+	if v := rawConf["NETWORK_ZONE"]; v != "" {
+		if !zoneRegex.MatchString(v) {
+			return nil, errors.New("failed to load configuration: invalid network zone, must be lowercase alphanumeric and hyphens only")
 		}
+		if len(v) > 12 {
+			return nil, errors.New("failed to load configuration: network zone is limited to 12 characters")
+		}
+		conf.NetworkZone = v
 	}
 	if v := rawConf["RESOLV_CONF"]; v != "" {
 		conf.ResolvConf = v

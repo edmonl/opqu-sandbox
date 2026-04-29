@@ -108,7 +108,7 @@ func TestLoadConfig(t *testing.T) {
 	confDir := filepath.Join(tmpDir, "conf")
 	os.MkdirAll(confDir, 0755)
 
-	defaultConf := "DISTRO=bullseye\nAUDIO=yes\n"
+	defaultConf := "DISTRO=bullseye\nNETWORK_ZONE=test-zone\n"
 	os.WriteFile(filepath.Join(confDir, "default"), []byte(defaultConf), 0644)
 
 	sandboxConf := "PORTS=tcp:8080:80\n"
@@ -123,12 +123,43 @@ func TestLoadConfig(t *testing.T) {
 		t.Errorf("Expected distro bullseye, got %s", conf.Distro)
 	}
 
-	if !conf.Audio {
-		t.Errorf("Expected audio to be true")
+	if conf.NetworkZone != "test-zone" {
+		t.Errorf("Expected network zone test-zone, got %s", conf.NetworkZone)
 	}
 
 	if len(conf.Ports) != 1 || conf.Ports[0] != "tcp:8080:80" {
 		t.Errorf("Expected ports [tcp:8080:80], got %v", conf.Ports)
+	}
+}
+
+func TestNetworkZoneLength(t *testing.T) {
+	tmpDir := t.TempDir()
+	confDir := filepath.Join(tmpDir, "conf")
+	os.MkdirAll(confDir, 0755)
+
+	nameConf := "NETWORK_ZONE=this-zone-is-too-long\n"
+	os.WriteFile(filepath.Join(confDir, "test.conf"), []byte(nameConf), 0644)
+
+	_, err := LoadConf(tmpDir, "test")
+	if err == nil {
+		t.Fatal("Expected error for long NETWORK_ZONE, but got none")
+	}
+}
+
+func TestNetworkZoneCharacters(t *testing.T) {
+	tmpDir := t.TempDir()
+	confDir := filepath.Join(tmpDir, "conf")
+	os.MkdirAll(confDir, 0755)
+
+	invalidZones := []string{"test_zone", "test.zone", "Test-Zone", "test zone", "test/zone"}
+	for _, zone := range invalidZones {
+		nameConf := "NETWORK_ZONE=" + zone + "\n"
+		os.WriteFile(filepath.Join(confDir, "test.conf"), []byte(nameConf), 0644)
+
+		_, err := LoadConf(tmpDir, "test")
+		if err == nil {
+			t.Errorf("Expected error for invalid NETWORK_ZONE '%s', but got none", zone)
+		}
 	}
 }
 
