@@ -15,7 +15,7 @@ The main entrypoint is [`sbxctl`](./sbxctl).
 
 ## Overview
 
-`sbxctl` manages sandbox files relative to a root directory. By default that root is the current working directory, so you can keep the script, config, and sandbox data together in one project folder.
+`sbxctl` manages sandbox files relative to a root directory. By default, that root is the current working directory, so you can keep the script, config, and sandbox data together in one project folder.
 
 Sandbox names:
 

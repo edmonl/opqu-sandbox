@@ -111,24 +111,7 @@
   - `SANDBOX_USER` is also locked; entry is always via `machinectl shell`
     which does not require a password.
 - Create base tarball immediately after bootstrap:
-  ```bash
-  sudo tar --zstd -cf "$ROOT_DIR/rootfs/{name}.base.tar.zst" \
-    -C "$ROOT_DIR/rootfs" "{name}/"
-  ```
-  The tarball is root-managed for the same reason as the live rootfs.
-- Any unexpected error during bootstrapping must log a clear message and exit 1.
-- pkg-cache accumulates over time; prune manually with:
-  `sudo rm {root}/pkg-cache/*.deb`
 
-### Cache note for mmdebstrap hooks
-`sync-in`/`sync-out` are mmdebstrap special hooks, while `"$1"` is the rootfs
-path exposed to shell hooks. Construct the cache-related hooks so the
-outside path expands in `sbxctl` but the inside path remains literal:
-```bash
---setup-hook='mkdir -p "$1/var/cache/apt/archives/"'
---setup-hook='sync-in "'"$ROOT_DIR"'/pkg-cache" /var/cache/apt/archives/'
---customize-hook='sync-out /var/cache/apt/archives "'"$ROOT_DIR"'/pkg-cache"'
-```
 
 ---
 
@@ -153,21 +136,16 @@ outside path expands in `sbxctl` but the inside path remains literal:
 | `sbxctl reset {name}` | refuse if running + wipe rootfs + re-extract tarball (see R6) |
 | `sbxctl snapshot {name} [output_path]` | refuse if running + write user-owned snapshot tarball of current rootfs (see R8) |
 | `sbxctl restore {name} {snapshot_path}` | refuse if running + wipe rootfs + extract user snapshot (see R9) |
-| `sbxctl delete {name}` | refuse if running + remove rootfs, tarball, conf files, bridge, unit (see R10) |
+| `sbxctl delete {name}` | (see doc/uninstall.md) |
 | `sbxctl status` | thin wrapper over `machinectl list` filtered to `opqu-sbx-*` |
 
 If an unrecognised subcommand is given, print a usage summary to stderr and
 exit 1.
 
-### Running check
-Use `machinectl list --no-legend` and grep for `opqu-sbx-{name}` to
-determine if a sandbox is running. Not found = stopped = not an error.
-Any unexpected error from machinectl = log + exit 1.
-
 ### Output from subcommands
 Commands pass subcommand output (stdout and stderr) through to the terminal
 unmodified. Do not capture or summarize output from `machinectl`, `systemd-run`,
-`mmdebstrap`, or `tar`. The script only emits its own messages for errors it
+or `mmdebstrap`. Internal archiving operations report errors directly via the `sbxctl` log. The script only emits its own messages for errors it
 detects itself (wrong state, missing files, failed precondition checks).
 
 ### `sbxctl shell`
@@ -201,27 +179,27 @@ exists) and that error passes through unmodified. This is by design.
 ### `sbxctl status [name]`
 If no `{name}` is provided, it performs a global health check and lists
 running sandboxes:
-1.  **Check Host Commands**: Verify that all required commands (see
+1. **Check Host Commands**: Verify that all required commands (see
     Prerequisites) are available in the PATH. Print each command followed by
     `OK` or `MISSING`. For `mmdebstrap`/`debootstrap`, it's acceptable if
     only one is present.
-2.  **Check Networking**:
+2. **Check Networking**:
     - **systemd-networkd**: Check if the service is active via `systemctl`.
     - **IP Forwarding**: Check if `/proc/sys/net/ipv4/ip_forward` is `1`.
-3.  **Check SANDBOX_USER**: Verify that the `SANDBOX_USER` (from
+3. **Check SANDBOX_USER**: Verify that the `SANDBOX_USER` (from
     `default` or default) exists on the host. Print the result.
-4.  **List Existing Rootfs**: List all directories in the `ROOT_DIR/rootfs/` subdirectory.
-5.  **List Running Sandboxes**: Runs `machinectl list` (with header) and
+4. **List Existing Rootfs**: List all directories in the `ROOT_DIR/rootfs/` subdirectory.
+5. **List Running Sandboxes**: Runs `machinectl list` (with header) and
     filters output to lines matching `opqu-sbx-`, plus the header line. The
     footer is recomputed and printed as `"{N} machines listed."`.
 
 If a `{name}` is provided, it shows the status of that specific sandbox:
-1.  **Rootfs Existence**: Check if `rootfs/{name}/` exists.
-2.  **Base Image**: Check if `rootfs/{name}.base.tar.zst` exists.
-3.  **Running State**: Check if the sandbox is currently running via `machinectl`.
-4.  **Port Mapping**: List the ports configured for forwarding in
+1. **Rootfs Existence**: Check if `rootfs/{name}/` exists.
+2. **Base Image**: Check if `rootfs/{name}.base.tar.zst` exists.
+3. **Running State**: Check if the sandbox is currently running via `machinectl`.
+4. **Port Mapping**: List the ports configured for forwarding in
     `conf/{name}.conf`.
-5.  **Configuration**: List which configuration files (`.conf`, `.packages`,
+5. **Configuration**: List which configuration files (`.conf`, `.packages`,
     `.mounts`) exist for this sandbox.
 
 ---
@@ -246,11 +224,9 @@ sbxctl reset {name}
 
 Steps 4 and 5 are best-effort: failures are silently ignored since the
 network interface and unit may already be gone. They mirror the same cleanup
-steps in `sbxctl delete` for consistency.
+steps in `doc/uninstall.md` for consistency.
 
-If the base tarball does not exist (e.g. manually deleted), step 3 will fail
-with an error from `tar`. This is expected and acceptable; the user must
-re-bootstrap from scratch in that case.
+If the base tarball does not exist (e.g. manually deleted), step 3 will fail with an error. This is expected and acceptable; the user must re-bootstrap from scratch in that case.
 
 To fully re-bootstrap from scratch: run `sbxctl create {name}` again.
 This requires the rootfs to not exist; remove it manually first if needed:
@@ -310,11 +286,10 @@ Notes:
 - The archive is user-managed, unlike `rootfs/{name}.base.tar.zst` which is
   root-managed
 - Do not change ownership of files inside the archived rootfs; only the output
-  archive file itself is expected to be owned by the invoking user
+  archive file itself is owned by the invoking user
 - The archive contains the `{name}/` directory itself, not only its
   contents, so it can be extracted directly into `ROOT_DIR/rootfs` during restore
-- If the rootfs is missing or unreadable, let `tar` fail normally and pass
-  its output through unmodified
+- If the rootfs is missing or unreadable, let the internal archiver report the error normally.
 
 ---
 
@@ -336,76 +311,8 @@ Notes:
 - `snapshot_path` is required and positional
 - Only basic path and top-level naming checks are performed before restore;
   deeper archive correctness remains the user's responsibility
-- No extra automation is performed; if extraction fails, `tar`'s own error
-  output passes through and the command exits non-zero
+- No extra automation is performed; if extraction fails, the internal extractor's error output passes through and the command exits non-zero
 - Restoring a snapshot does not update or replace `rootfs/{name}.base.tar.zst`
-
----
-
-## R10 — Delete (`sbxctl delete {name}`)
-
-Permanently removes binary artifacts for a single sandbox while preserving
-its configuration files.
-
-1. Check if running; if yes, print:
-   `"sandbox '{name}' is running; stop it first with 'sbxctl stop {name}'"` and exit 1
-2. Remove the rootfs and base tarball:
-   ```bash
-   sudo rm -rf "$ROOT_DIR/rootfs/{name}"
-   sudo rm -f  "$ROOT_DIR/rootfs/{name}.base.tar.zst"
-   ```
-3. List any found per-sandbox conf files in `conf/` and inform the user that
-   they are being kept (not deleted).
-4. Remove the host network bridge if it lingers:
-   nspawn normally tears it down on stop, but if it remains:
-   ```bash
-   sudo ip link delete vz-{zone_name} 2>/dev/null || true
-   ```
-5. Remove a stuck transient systemd unit if it remains:
-   ```bash
-   sudo systemctl reset-failed "opqu-sbx-{name}" 2>/dev/null || true
-   ```
-
-- Steps 4 and 5 are best-effort: failures are silently ignored since the
-  network interface and unit may already be gone.
-- `pkg-cache/` and `conf/` are shared across sandboxes and are
-  never removed by `sbxctl delete`.
-
----
-
-## R11 — Complete Removal
-
-To fully remove everything related to this system:
-
-1. **Stop all running sandboxes**
-   ```bash
-   for name in $(machinectl list --no-legend | awk '{print $1}' | grep '^opqu-sbx-'); do
-     sudo machinectl poweroff "$name"
-   done
-   ```
-
-2. **Remove the sandboxes directory** (rootfs, tarballs, cache, configs, script)
-   ```bash
-   sudo rm -rf /path/to/sandboxes/
-   ```
-
-3. **Remove host network bridges if any linger after stop**
-   nspawn normally tears down `vz-{zone_name}` bridges when a sandbox
-   stops. If any remain:
-   ```bash
-   sudo ip link delete "vz-{zone_name}"
-   ```
-   All opqu-sandbox bridges are identifiable by the `vz-` prefix and their
-   correspondence to sandbox names (see R3).
-
-4. **Remove stuck transient systemd units if any remain**
-   All opqu-sandbox units are identifiable by the `opqu-sbx-` prefix:
-   ```bash
-   sudo systemctl reset-failed 'opqu-sbx-*'
-   ```
-
-After step 2, nothing from this system remains on the host except transient
-network and unit state that clears automatically on next reboot.
 
 ---
 

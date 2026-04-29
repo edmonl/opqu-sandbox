@@ -4,26 +4,50 @@
 
 ## Host Commands
 
-The following host commands are used:
-- `mmdebstrap`: Used to bootstrap the Debian rootfs securely and efficiently. (Primary)
+The following host commands are used by `sbxctl`:
+- `mmdebstrap`: Used to bootstrap the Debian rootfs securely and efficiently.
 - `debootstrap`: Used as a fallback if `mmdebstrap` is not available.
 - `systemd-nspawn`: The core container engine used to run the sandboxes.
 - `systemd-run`: Used to daemonize sandbox processes as transient systemd services.
 - `machinectl`: Used to manage container lifecycle and provide shell access.
-- `tar` (with Zstandard support) and `zstd`: Used for creating and extracting base images and snapshots.
-- `ip`: Used for managing and cleaning up network bridges.
 - `systemctl`: Used for managing and cleaning up transient systemd units.
 - `sudo`: Used when necessary and `sbxctl` is started without `sudo`.
 - `su`: Used as a fallback when `sudo` is not available.
 
+Other commands that may be useful for extra administration:
+- `networkctl`: 
+
 ### Networking Requirements
 
-For sandboxes to have outbound internet access, the host must be configured the host system must be configured to handle virtual routing and DHCP, as well as firewall traversal. Bridge `vz-{zone name}` (see [Sandbox Names](sandbox-names.md#networking) about the zone name) is created and a DHCP server runs on it. Inside sandboxes `systemd-networkd` is enabled and stared at bootstrap as DHCP client.
+For sandboxes to have outbound internet access, the host system must be configured to handle virtual routing and DHCP, as well as firewall traversal.
+
+#### Network Zones and Bridges
+
+This tool uses the concept of *Network Zones* to group sandboxes together.
+- A *Network Zone* is a logical group. All sandboxes assigned to the same zone (via the `NETWORK_ZONE` setting) can communicate with each other.
+- A *Bridge* is the underlying virtual switch created on the host to implement the zone. 
+
+**Naming and Lifecycle:**
+1. Each zone results in a host bridge named `vz-{zone_name}`.
+2. `systemd-nspawn` automatically creates the bridge when the *first* sandbox in that zone starts.
+3. `systemd-nspawn` automatically removes the bridge when the *last* sandbox in that zone stops.
+4. Because the bridge is temporary, a DHCP server (like `systemd-networkd`) must be configured on the host to listen for and serve these `vz-*` interfaces as they appear.
 
 #### Network Management
 
-The sandbox uses `systemd-nspawn` zones, which create virtual bridges on the host (prefixed with `vz-`). These bridges require `systemd-networkd` to provide DHCP leases and perform NAT (Network Address Translation).
-You may check if the service is already active by `systemctl status systemd-networkd`, or start the service using `sudo systemctl enable --now systemd-networkd`, which also auto-starts the service. Note to check your current network management to make sure no conflicts with `systemd-networkd`.
+The virtual bridges (prefixed with `vz-`) require `systemd-networkd` on the host to provide DHCP leases and perform NAT (Network Address Translation).
+
+**Configuration Requirement:**
+For the bridges to be managed automatically, a `systemd-networkd` configuration file (e.g., `/usr/lib/systemd/network/80-container-vz.network` or similar) must exist on the host to match `vz-*` interfaces.
+- On Debian, this file is provided automatically by `systemd`.
+- You can verify its presence by looking for a file containing `[Match] Name=vz-*` in `/usr/lib/systemd/network/` (or check the man page of `systemd.network` for other locations).
+
+**Verification:**
+You can use the `networkctl` command to verify the status of the virtual interfaces:
+- `networkctl list`: Lists all interfaces and their setup status (should show `managed` for `vz-*` interfaces when sandboxes are running).
+- `networkctl status vz-*`: Shows detailed information, including assigned IP addresses and DHCP server status.
+
+You can check if the service is active with `systemctl status systemd-networkd`, or auto start it using `systemctl enable --now systemd-networkd`.
 
 #### IP Forwarding
 For the host to act as a gateway for the sandboxes, the Linux kernel must allow packet forwarding between interfaces.
@@ -33,14 +57,14 @@ See man pages about `sysctl.d`, `sysctl.conf`, or `sysctl` if you need to change
 #### Firewall Configuration
 
 `sbxctl` does not touch firewalls on the host.
-Regardless of which firewall you use (ufw, firewalld, or raw nftables/iptables), you must ensure it does not block the virtual traffic. Check for the following necessary rules (in natural language):
+Regardless of which firewall you use, you must ensure it does not block the virtual traffic. Check for the following necessary rules (in natural language):
 1. **Input**: Allow traffic from the virtual interfaces (`vz-*` and `vb-*`) to the host. This is required for the sandbox to request a DHCP IP address and reach host DNS services.
 2. **Routing**: Allow traffic to be forwarded/routed from the virtual interfaces out to your physical internet interface, and vice versa for return traffic.
 3. **Masquerading (NAT)**: The firewall must perform "Masquerading" so that traffic leaving the sandbox appears to come from the host's IP address.
 
 ### User Requirement
 
-The `SANDBOX_USER` (see [Configuration](configuration.md#configuration-files) must already exist as a real user on the host before `sbxctl create` is run.
+`SANDBOX_USER` (see [Configuration](configuration.md#configuration-files)) must already exist as a real user on the host before `sbxctl create` is run.
 This is because the system uses real host UIDs inside the sandbox to ensure that bind-mounted files have consistent ownership on both sides without requiring user namespaces or UID remapping.
 
 ### Privileges

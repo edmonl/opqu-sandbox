@@ -16,22 +16,33 @@ All configuration files are optional and located in the `conf/` directory relati
 
 ### `conf/default`
 
-This file in dotenv format defines default settings for all sandboxes with the following default values:
+This file in dotenv format defines default settings for *creating* sandboxes with the following default values:
 
 ```bash
-DISTRO=trixie
+DISTRO=stable
 MIRROR=http://deb.debian.org/debian
 VARIANT=standard            # standard = full usable base; required = minimal
 SANDBOX_USER=             # defaults to $(whoami) at runtime if left empty
 RESOLV_CONF=auto            # for `--resolv-conf` of `systemd-nspawn`
 ROOT_USER_PASSWORD=         # if empty, root password is disabled (locked)
+NETWORK_ZONE=opqu-sbx       # logical network group; max 12 characters
 ```
 
-An empty value means using the default.
+An empty value means using the default. See [User Model](user-model.md) for more about `ROOT_USER_PASSWORD`.
+
+#### Network Zone Names
+
+Each sandbox belongs to a *Network Zone*, which determines how it is grouped and connected on the host. 
+The zone name is defined by `NETWORK_ZONE`. All sandboxes sharing the same zone name are connected to the same virtual bridge and can communicate with each other.
+To stay under the 15-character Linux interface name limit, the zone name itself is limited to *12 characters*. `systemd-nspawn` automatically creates a host-side bridge prefixed with `vz-` for each zone. See [System Requirements](system-requirements.md#network-zones-and-bridges) for more detail.
 
 ### `conf/{name}.conf`
 
-Per-sandbox runtime configuration in dotenv format. This file can also override default configuration defined in `conf/default` (e.g., `DISTRO`, `MIRROR`, `VARIANT`, `SANDBOX_USER`, `RESOLV_CONF`, `ROOT_USER_PASSWORD`).
+Sandbox names are validated as follows:
+- Must not be empty.
+- Allowed characters: lowercase alphanumeric and hyphens.
+
+Each `{name}.conf` file provides extra runtime configuration in dotenv format for the named sandbox, as well as optionally overriding the default configuration in `conf/default`.
 
 ```bash
 # Per-sandbox overrides (optional)
@@ -40,14 +51,11 @@ Per-sandbox runtime configuration in dotenv format. This file can also override 
 # RESOLV_CONF=replace-uplink
 
 # Sandbox-specific settings
-PORTS="tcp:8080:8080 tcp:5432:5432"   # space-separated port mapping, each becomes a --port= flag of `systemd-nspawn`
-AUDIO=no                              # yes to bind PipeWire socket
+PORTS="tcp:8080:8080 udp:463"   # space-separated port mapping, each becomes a --port= flag of `systemd-nspawn`, no mapping by default
 ```
 
-Default values: no port mapping, no audio.
-
 Without port mapping, multiple sandboxes can run simultaneously without port collisions since each has its own IP on its own bridge.
-However, if two sandboxes map the same host-side port, one will fail at start time when the other has been running.
+However, if two sandboxes map the same host-side port, one will fail at start time if the other is already running.
 
 ### `conf/{name}.packages`
 
