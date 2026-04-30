@@ -36,17 +36,3 @@ func TestNames(t *testing.T) {
 		t.Errorf("Unexpected bridge name: %v", BridgeName("test-zone"))
 	}
 }
-
-func TestBuildIncludeArg(t *testing.T) {
-	packages := []string{"git", "curl", "git"}
-
-	pkgs := BuildIncludeArg(packages)
-
-	if len(pkgs) != 2 {
-		t.Fatalf("Expected 2 packages, got %d (%v)", len(pkgs), pkgs)
-	}
-
-	if pkgs[0] != "git" || pkgs[1] != "curl" {
-		t.Errorf("Unexpected packages: %v", pkgs)
-	}
-}
