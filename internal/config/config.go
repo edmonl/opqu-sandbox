@@ -22,19 +22,17 @@ type Mount struct {
 }
 
 type Config struct {
-	Distro      string
-	Mirror      string
-	Variant     string
-	SandboxUser *user.User
+	Distro       string
+	Mirror       string
+	Variant      string
+	SandboxUser  *user.User
 	Ports        []string
 	NetworkZone  string
 	ResolvConf   string
 	RootPassword string
 }
 
-var (
-	zoneRegex = regexp.MustCompile(`^[a-z0-9-]+$`)
-)
+var zoneRegex = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 func loadConfFile(path string) (map[string]string, error) {
 	conf, err := godotenv.Read(path)
@@ -150,7 +148,7 @@ func loadLines(path string) ([]string, error) {
 	}
 	defer f.Close()
 
-	var lines []string
+	uniqLines := map[string]struct{}{}
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -162,13 +160,19 @@ func loadLines(path string) ([]string, error) {
 			continue
 		}
 
-		lines = append(lines, line)
+		uniqLines[line] = struct{}{}
 	}
 
 	err = scanner.Err()
 	if err != nil {
 		return nil, fmt.Errorf("failed to read %v: %w", path, err)
 	}
+
+	lines := make([]string, 0, len(uniqLines))
+	for line := range uniqLines {
+		lines = append(lines, line)
+	}
+
 	return lines, nil
 }
 
@@ -192,14 +196,14 @@ func LoadPackages(rootDir, name string) ([]string, error) {
 
 var mountRegex = regexp.MustCompile(`^([^:]*)(?::([^:]*))?(:ro)?$`)
 
-func LoadMounts(rootDir, name string, u *user.User) ([]Mount, error) {
+func LoadMounts(rootDir, name string, u *user.User) ([]*Mount, error) {
 	mountsPath := filepath.Join(rootDir, "conf", name+".mounts")
 	mountLines, err := loadLines(mountsPath)
 	if err != nil {
 		return nil, err
 	}
 
-	var mounts []Mount
+	sandboxPathMounts := map[string]*Mount{}
 	for _, m := range mountLines {
 		matches := mountRegex.FindStringSubmatch(m)
 		if matches == nil {
@@ -236,11 +240,23 @@ func LoadMounts(rootDir, name string, u *user.User) ([]Mount, error) {
 			return nil, fmt.Errorf("invalid mount %v in %v: sandbox path must be absolute", m, mountsPath)
 		}
 
-		mounts = append(mounts, Mount{
-			HostPath:    hostPath,
-			SandboxPath: sandboxPath,
-			ReadOnly:    readOnly,
-		})
+		mount := sandboxPathMounts[sandboxPath]
+		if mount == nil {
+			sandboxPathMounts[sandboxPath] = &Mount{
+				HostPath:    hostPath,
+				SandboxPath: sandboxPath,
+				ReadOnly:    readOnly,
+			}
+		} else if mount.HostPath == hostPath {
+			mount.ReadOnly = mount.ReadOnly || readOnly
+		} else {
+			return nil, fmt.Errorf("invalid mount %v in %v: same sandbox path is mounted to again", m, mountsPath)
+		}
+	}
+
+	mounts := make([]*Mount, 0, len(sandboxPathMounts))
+	for _, mount := range sandboxPathMounts {
+		mounts = append(mounts, mount)
 	}
 
 	return mounts, nil

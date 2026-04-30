@@ -5,23 +5,22 @@ import (
 )
 
 func TestValidateName(t *testing.T) {
-	validNames := []string{"test", "a", "123", "a-b", "test-sandbox"}
+	validNames := []string{"test", "a", "123", "a-b", "test-sandbox", "this-is-longer-than-twelve-characters"}
 	for _, name := range validNames {
 		if err := ValidateName(name); err != nil {
-			t.Errorf("Expected name '%s' to be valid, got error: %v", name, err)
+			t.Errorf("Expected name %v to be valid, got error: %v", name, err)
 		}
 	}
 
 	invalidNames := []string{
-		"",                 // too short
-		"this-is-too-long", // > 12 chars
-		"Test",             // uppercase
-		"test_1",           // underscore
-		"test name",        // space
+		"",          // too short
+		"Test",      // uppercase
+		"test_1",    // underscore
+		"test name", // space
 	}
 	for _, name := range invalidNames {
 		if err := ValidateName(name); err == nil {
-			t.Errorf("Expected name '%s' to be invalid, but it was accepted", name)
+			t.Errorf("Expected name %v to be invalid, but it was accepted", name)
 		}
 	}
 }
@@ -30,54 +29,24 @@ func TestNames(t *testing.T) {
 	name := "my-box"
 
 	if MachineName(name) != "opqu-sbx-my-box" {
-		t.Errorf("Unexpected machine name: %s", MachineName(name))
+		t.Errorf("Unexpected machine name: %v", MachineName(name))
 	}
 
-	// Zone name tests
-	if ZoneName("short") != "opqu-short" { // length: 10 <= 12
-		t.Errorf("Unexpected zone name: %s", ZoneName("short"))
-	}
-
-	if ZoneName("a-bit-longer") != "opq-a-bit-longer" { // length: 16 -> available: 0? Wait.
-		// basePrefix="opqu" (len 4)
-		// name="a-bit-longer" (len 12)
-		// full = "opqu-a-bit-longer" (len 17)
-		// available = 12 - 12 = 0 -> name[:12] -> "a-bit-longer"
-	}
-}
-
-func TestZoneNameSpecifics(t *testing.T) {
-	tests := []struct {
-		name     string
-		expected string
-	}{
-		{"test", "opqu-test"},            // 9 <= 12
-		{"sandbox1", "opqu-sandbox1"},    // 13 > 12. available=4 -> opqu[:3]="opq" -> opq-sandbox1
-		{"longer-name", "o-longer-name"}, // len(longer-name)=11. full=16. avail=1. -> o-longer-name? Wait. Code: if avail==1 { return "o" + name } => olonger-name
-		{"exactly-12ch", "exactly-12ch"}, // len=12. avail=0 -> exactly-12ch
-	}
-
-	for _, tt := range tests {
-		actual := ZoneName(tt.name)
-		// We'll just print if it fails instead of hardcoding exact bash-equivalent edge case matching if it drifts slightly,
-		// but let's assert. Actually, let's just make sure it doesn't panic and length <= 12.
-		if len(actual) > 12 && actual != "opq-sandbox1" && tt.name != "sandbox1" {
-			// Just verifying length bounds
-		}
+	if BridgeName("test-zone") != "vz-test-zone" {
+		t.Errorf("Unexpected bridge name: %v", BridgeName("test-zone"))
 	}
 }
 
 func TestBuildIncludeArg(t *testing.T) {
 	packages := []string{"git", "curl", "git"}
-	audio := true
 
-	pkgs := BuildIncludeArg(packages, audio)
+	pkgs := BuildIncludeArg(packages)
 
-	if len(pkgs) != 3 {
-		t.Fatalf("Expected 3 packages, got %d (%v)", len(pkgs), pkgs)
+	if len(pkgs) != 2 {
+		t.Fatalf("Expected 2 packages, got %d (%v)", len(pkgs), pkgs)
 	}
 
-	if pkgs[0] != "git" || pkgs[1] != "curl" || pkgs[2] != "pipewire-pulse" {
+	if pkgs[0] != "git" || pkgs[1] != "curl" {
 		t.Errorf("Unexpected packages: %v", pkgs)
 	}
 }

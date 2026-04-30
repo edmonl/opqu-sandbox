@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
 
 	"github.com/edmonl/opqu-sandbox/internal/config"
 	"github.com/edmonl/opqu-sandbox/internal/sandbox"
@@ -29,19 +27,14 @@ var shellCmd = &cobra.Command{
 		}
 
 		machine := sandbox.MachineName(name)
-		userAtMachine := fmt.Sprintf("%s@%s", conf.SandboxUser.Username, machine)
+		userAtMachine := fmt.Sprintf("%v@%v", conf.SandboxUser.Username, machine)
 
 		execArgs := []string{"shell", userAtMachine}
 		if len(args) > 1 {
 			execArgs = append(execArgs, args[1:]...)
 		}
 
-		execCmd := exec.Command("machinectl", execArgs...)
-		execCmd.Stdout = os.Stdout
-		execCmd.Stderr = os.Stderr
-		execCmd.Stdin = os.Stdin
-
-		return execCmd.Run()
+		return sandbox.RunCmd("machinectl", execArgs...)
 	},
 }
 

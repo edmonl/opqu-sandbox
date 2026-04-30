@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/edmonl/opqu-sandbox/internal/config"
 	"github.com/edmonl/opqu-sandbox/internal/sandbox"
 	"github.com/spf13/cobra"
 )
@@ -29,23 +30,25 @@ var resetCmd = &cobra.Command{
 		}
 
 		if running {
-			return fmt.Errorf("sandbox '%s' is running; stop it first", name)
+			return fmt.Errorf("sandbox %v is running; stop it first", name)
+		}
+
+		conf, err := config.LoadConf(rootDir, name)
+		if err != nil {
+			return err
 		}
 
 		rootfs := filepath.Join(rootDir, "rootfs", name)
 		if err := os.RemoveAll(rootfs); err != nil {
-			return fmt.Errorf("failed to remove rootfs for sandbox '%s': %v", name, err)
+			return fmt.Errorf("failed to remove rootfs for sandbox %v: %v", name, err)
 		}
 
-		tarball := filepath.Join(rootDir, "rootfs", fmt.Sprintf("%s.base.tar.zst", name))
-		tarCmd := exec.Command("tar", "--zstd", "-xf", tarball, "-C", filepath.Join(rootDir, "rootfs"))
-		tarCmd.Stdout = os.Stdout
-		tarCmd.Stderr = os.Stderr
-		if err := tarCmd.Run(); err != nil {
+		tarball := filepath.Join(rootDir, "rootfs", fmt.Sprintf("%v.base.tar.zst", name))
+		if err := sandbox.Extract(tarball, filepath.Join(rootDir, "rootfs")); err != nil {
 			return fmt.Errorf("failed to extract base tarball: %v", err)
 		}
 
-		bridge := sandbox.BridgeName(name)
+		bridge := sandbox.BridgeName(conf.NetworkZone)
 		machine := sandbox.MachineName(name)
 
 		// Ignore errors for cleanup commands

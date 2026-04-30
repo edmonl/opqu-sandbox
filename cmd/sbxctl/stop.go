@@ -1,9 +1,6 @@
 package main
 
 import (
-	"os"
-	"os/exec"
-
 	"github.com/edmonl/opqu-sandbox/internal/sandbox"
 	"github.com/spf13/cobra"
 )
@@ -31,11 +28,7 @@ var stopCmd = &cobra.Command{
 		}
 
 		machine := sandbox.MachineName(name)
-		execCmd := exec.Command("machinectl", "poweroff", machine)
-		execCmd.Stdout = os.Stdout
-		execCmd.Stderr = os.Stderr
-
-		return execCmd.Run()
+		return sandbox.RunCmd("machinectl", "poweroff", machine)
 	},
 }
 

@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -32,52 +31,46 @@ var restoreCmd = &cobra.Command{
 		}
 
 		if running {
-			return fmt.Errorf("sandbox '%s' is running; stop it first", name)
+			return fmt.Errorf("sandbox %v is running; stop it first", name)
 		}
 
 		info, err := os.Stat(snapshotPath)
 		if err != nil {
 			if os.IsNotExist(err) {
-				return fmt.Errorf("snapshot '%s' does not exist", snapshotPath)
+				return fmt.Errorf("snapshot %v does not exist", snapshotPath)
 			}
-			return fmt.Errorf("failed to stat snapshot '%s': %v", snapshotPath, err)
+			return fmt.Errorf("failed to stat snapshot %v: %v", snapshotPath, err)
 		}
 
 		if !info.Mode().IsRegular() {
-			return fmt.Errorf("snapshot '%s' is not a regular file", snapshotPath)
+			return fmt.Errorf("snapshot %v is not a regular file", snapshotPath)
 		}
 
 		// Check snapshot contents
-		expectedRootfs := fmt.Sprintf("%s/", name)
-		tarCmd := exec.Command("tar", "--zstd", "-tf", snapshotPath)
-		output, err := tarCmd.Output()
+		expectedRootfs := fmt.Sprintf("%v/", name)
+		paths, err := sandbox.ListPaths(snapshotPath)
 		if err != nil {
 			return fmt.Errorf("failed to list snapshot contents: %v", err)
 		}
 
 		foundRootfs := false
-		lines := strings.Split(string(output), "\n")
-		for _, line := range lines {
-			if strings.TrimSpace(line) == expectedRootfs {
+		for _, p := range paths {
+			if strings.TrimSpace(p) == expectedRootfs {
 				foundRootfs = true
 				break
 			}
 		}
 
 		if !foundRootfs {
-			return fmt.Errorf("snapshot '%s' does not contain top-level '%s'", snapshotPath, expectedRootfs)
+			return fmt.Errorf("snapshot %v does not contain top-level %v", snapshotPath, expectedRootfs)
 		}
 
 		rootfs := filepath.Join(rootDir, "rootfs", name)
 		if err := os.RemoveAll(rootfs); err != nil {
-			return fmt.Errorf("failed to remove rootfs for sandbox '%s': %v", name, err)
+			return fmt.Errorf("failed to remove rootfs for sandbox %v: %v", name, err)
 		}
 
-		extractCmd := exec.Command("tar", "--zstd", "-xf", snapshotPath, "-C", filepath.Join(rootDir, "rootfs"))
-		extractCmd.Stdout = os.Stdout
-		extractCmd.Stderr = os.Stderr
-
-		if err := extractCmd.Run(); err != nil {
+		if err := sandbox.Extract(snapshotPath, filepath.Join(rootDir, "rootfs")); err != nil {
 			return fmt.Errorf("failed to extract snapshot: %v", err)
 		}
 

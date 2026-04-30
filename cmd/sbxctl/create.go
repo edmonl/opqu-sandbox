@@ -9,35 +9,37 @@ import (
 
 	"github.com/edmonl/opqu-sandbox/internal/config"
 	"github.com/edmonl/opqu-sandbox/internal/sandbox"
+	"github.com/klauspost/compress/zstd"
 	"github.com/spf13/cobra"
 )
 
 var createCmd = &cobra.Command{
 	Use:   "create [name]",
-	Short: "Bootstrap a new sandbox and save its clean base image",
+	Short: "Create rootfs for a new sandbox and save its clean base image",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := sudo(); err != nil {
-			return err
-		}
 		name := args[0]
 		if err := sandbox.ValidateName(name); err != nil {
 			return err
 		}
 
-		if strings.ContainsAny(rootDir, " \t\n\r") {
-			return fmt.Errorf("sandbox root '%s' contains whitespace; move it to a path without spaces", rootDir)
+		rootfs := filepath.Join(rootDir, "rootfs")
+		pkgCache := filepath.Join(rootDir, "pkg-cache")
+		sandboxFs := filepath.Join(rootfs, name)
+		tarball := filepath.Join(rootfs, fmt.Sprintf("%v.base.tar.zst", name))
+		// best effort for the current user
+		os.MkdirAll(rootfs, 0o755)
+		os.MkdirAll(pkgCache, 0o755)
+
+		if err := sudo(); err != nil {
+			return err
 		}
 
-		rootfs := filepath.Join(rootDir, "rootfs", name)
-		tarball := filepath.Join(rootDir, "rootfs", fmt.Sprintf("%s.base.tar.zst", name))
-
-		if _, err := os.Stat(rootfs); err == nil {
-			return fmt.Errorf("sandbox '%s' already exists", name)
-		}
-
-		if err := os.MkdirAll(filepath.Dir(rootfs), 0755); err != nil {
+		if err := os.MkdirAll(rootfs, 0o755); err != nil {
 			return fmt.Errorf("failed to create rootfs directory: %v", err)
+		}
+		if err := os.MkdirAll(pkgCache, 0o755); err != nil {
+			return fmt.Errorf("failed to create pkg-cache directory: %v", err)
 		}
 
 		conf, err := config.LoadConf(rootDir, name)
@@ -45,59 +47,37 @@ var createCmd = &cobra.Command{
 			return err
 		}
 
-		u := conf.SandboxUser
-		uid := u.Uid
-
-		pkgCache := filepath.Join(rootDir, "pkg-cache")
-		if err := os.MkdirAll(pkgCache, 0755); err != nil {
-			return fmt.Errorf("failed to create pkg-cache directory: %v", err)
-		}
-
-		pkgs, err := config.LoadPackages(rootDir, name)
+		packages, err := config.LoadPackages(rootDir, name)
 		if err != nil {
 			return err
 		}
-		packages := sandbox.BuildIncludeArg(pkgs, conf.Audio)
+
+		if _, err := os.Stat(sandboxFs); err == nil {
+			return fmt.Errorf("rootfs of sandbox %v already exists", name)
+		}
 
 		if _, err := exec.LookPath("mmdebstrap"); err == nil {
 			mmdebstrapArgs := []string{
 				"--variant=" + conf.Variant,
 				"--skip=essential/unlink",
 				"--setup-hook=mkdir -p \"$1/var/cache/apt/archives/\"",
+				"--setup-hook=" + fmt.Sprintf("sync-in %q /var/cache/apt/archives/", pkgCache),
+				"--customize-hook=" + fmt.Sprintf("sync-out /var/cache/apt/archives %q", pkgCache),
+				"--customize-hook=" + fmt.Sprintf(`chroot "$1" /bin/sh -c %q`, getUserSetup(conf)),
+				"--customize-hook=" + `chroot "$1" systemctl enable systemd-networkd`,
 			}
-
-			cacheInHook := fmt.Sprintf("sync-in %q /var/cache/apt/archives/", pkgCache)
-			cacheOutHook := fmt.Sprintf("sync-out /var/cache/apt/archives %q", pkgCache)
-
-			mmdebstrapArgs = append(mmdebstrapArgs,
-				"--setup-hook="+cacheInHook,
-				"--customize-hook="+cacheOutHook,
-			)
-
-			enableNetworkdHook := `chroot "$1" systemctl enable systemd-networkd`
-			createUserCmd := fmt.Sprintf("useradd -m -u %s -s /bin/bash %s && passwd -l root && passwd -l %s", uid, conf.SandboxUser.Username, conf.SandboxUser.Username)
-			createUserHook := fmt.Sprintf(`chroot "$1" /bin/sh -c %q`, createUserCmd)
-
-			mmdebstrapArgs = append(mmdebstrapArgs,
-				"--customize-hook="+enableNetworkdHook,
-				"--customize-hook="+createUserHook,
-			)
 
 			if len(packages) > 0 {
 				mmdebstrapArgs = append(mmdebstrapArgs, "--include="+strings.Join(packages, ","))
 			}
 
-			mmdebstrapArgs = append(mmdebstrapArgs, conf.Distro, rootfs, conf.Mirror)
+			mmdebstrapArgs = append(mmdebstrapArgs, conf.Distro, sandboxFs, conf.Mirror)
 
-			mmCmd := exec.Command("mmdebstrap", mmdebstrapArgs...)
-			mmCmd.Stdout = os.Stdout
-			mmCmd.Stderr = os.Stderr
-
-			if err := mmCmd.Run(); err != nil {
-				return fmt.Errorf("bootstrapping sandbox '%s' with mmdebstrap failed: %v", name, err)
+			if err := sandbox.RunCmd("mmdebstrap", mmdebstrapArgs...); err != nil {
+				return fmt.Errorf("provisioning sandbox %v with mmdebstrap failed: %v", name, err)
 			}
 		} else if _, err := exec.LookPath("debootstrap"); err == nil {
-			fmt.Println("mmdebstrap not found, falling back to debootstrap...")
+			fmt.Println("mmdebstrap not found, falling back to debootstrap")
 
 			debootstrapArgs := []string{
 				"--variant=" + conf.Variant,
@@ -107,42 +87,51 @@ var createCmd = &cobra.Command{
 				debootstrapArgs = append(debootstrapArgs, "--include="+strings.Join(packages, ","))
 			}
 
-			debootstrapArgs = append(debootstrapArgs, conf.Distro, rootfs, conf.Mirror)
+			debootstrapArgs = append(debootstrapArgs, conf.Distro, sandboxFs, conf.Mirror)
 
-			debCmd := exec.Command("debootstrap", debootstrapArgs...)
-			debCmd.Stdout = os.Stdout
-			debCmd.Stderr = os.Stderr
-
-			if err := debCmd.Run(); err != nil {
-				return fmt.Errorf("bootstrapping sandbox '%s' with debootstrap failed: %v", name, err)
-			}
-
-			// Enable networking
-			networkCmd := exec.Command("chroot", rootfs, "systemctl", "enable", "systemd-networkd")
-			if err := networkCmd.Run(); err != nil {
-				return fmt.Errorf("failed to enable systemd-networkd: %v", err)
+			if err := sandbox.RunCmd("debootstrap", debootstrapArgs...); err != nil {
+				return fmt.Errorf("provisioning sandbox %v with debootstrap failed: %v", name, err)
 			}
 
 			// Create user and lock root
-			userScript := fmt.Sprintf("useradd -m -u %s -s /bin/bash %s && passwd -l root && passwd -l %s", uid, conf.SandboxUser.Username, conf.SandboxUser.Username)
-			userCmd := exec.Command("chroot", rootfs, "/bin/sh", "-c", userScript)
-			if err := userCmd.Run(); err != nil {
+			if err := sandbox.RunCmd("chroot", sandboxFs, "/bin/sh", "-c", getUserSetup(conf)); err != nil {
 				return fmt.Errorf("failed to create sandbox user: %v", err)
+			}
+
+			// Enable networking
+			if err := sandbox.RunCmd("chroot", sandboxFs, "systemctl", "enable", "systemd-networkd"); err != nil {
+				return fmt.Errorf("failed to enable systemd-networkd: %v", err)
 			}
 		} else {
 			return fmt.Errorf("neither mmdebstrap nor debootstrap found in PATH")
 		}
 
-		tarCmd := exec.Command("tar", "--zstd", "-cf", tarball, "-C", filepath.Join(rootDir, "rootfs"), name+"/")
-		tarCmd.Stdout = os.Stdout
-		tarCmd.Stderr = os.Stderr
-
-		if err := tarCmd.Run(); err != nil {
-			return fmt.Errorf("failed to create base tarball for sandbox '%s': %v", name, err)
+		if err := sandbox.Compress(sandboxFs, tarball, zstd.SpeedDefault); err != nil {
+			return fmt.Errorf("failed to create base tarball for sandbox %v: %v", name, err)
 		}
 
 		return nil
 	},
+}
+
+func getUserSetup(conf *config.Config) string {
+	var rootAction string
+	if conf.RootPassword == "" {
+		rootAction = "passwd -l root"
+	} else {
+		rootAction = fmt.Sprintf("echo 'root:%v' | chpasswd", conf.RootPassword)
+	}
+
+	uid := conf.SandboxUser.Uid
+	userName := conf.SandboxUser.Username
+	var createUserCmd string
+	if uid == "0" {
+		createUserCmd = rootAction
+	} else {
+		createUserCmd = fmt.Sprintf("useradd -m -u %v -s /bin/bash %v && %v && passwd -l %v", uid, userName, rootAction, userName)
+	}
+
+	return createUserCmd
 }
 
 func init() {

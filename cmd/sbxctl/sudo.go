@@ -2,44 +2,81 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
+	"path/filepath"
 	"strings"
 )
 
 func sudo() error {
 	// Only escalate if not already root
-	if os.Geteuid() != 0 {
-		fmt.Print("This operation requires sudo. Press [Enter] directly to escalate, or Ctrl+C to cancel: ")
-		reader := bufio.NewReader(os.Stdin)
-		input, err := reader.ReadString('\n')
-		if err == io.EOF || strings.TrimSpace(input) != "" {
-			if err == io.EOF {
-				fmt.Println()
-			}
-			fmt.Println("Escalation cancelled.")
-			os.Exit(0)
+	if os.Geteuid() == 0 {
+		return nil
+	}
+
+	var escalationCmd string
+	if _, err := exec.LookPath("sudo"); err == nil {
+		escalationCmd = "sudo"
+	} else if _, err := exec.LookPath("su"); err == nil {
+		escalationCmd = "su"
+	} else {
+		return errors.New("neither sudo nor su found in PATH")
+	}
+
+	fmt.Printf("This operation requires to invoke %v. Press [Enter] directly to escalate, or Ctrl+C to cancel: ", escalationCmd)
+	reader := bufio.NewReader(os.Stdin)
+	if input, err := reader.ReadString('\n'); err == io.EOF || (err == nil && input != "\n") {
+		if err == io.EOF {
+			fmt.Println()
 		}
-		if err != nil {
-			return err
+		fmt.Println("Escalation cancelled.")
+		os.Exit(0)
+	} else if err != nil {
+		return err
+	}
+
+	exe, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		return fmt.Errorf("failed to resolve the executable path: %w", err)
+	}
+
+	var cmd *exec.Cmd
+	if escalationCmd == "sudo" {
+		cmd = exec.Command("sudo", append([]string{exe}, os.Args[1:]...)...)
+	} else {
+		// su -c "exe args..."
+		// We need to escape arguments for the shell
+		var args []string
+		args = append(args, escape(exe))
+		for _, arg := range os.Args[1:] {
+			args = append(args, escape(arg))
 		}
 
-		exe, err := os.Executable()
-		if err != nil {
-			return fmt.Errorf("failed to resolve the executable path: %w", err)
+		// When using su, we should manually set SUDO_USER so LoadConf works
+		u, userErr := user.Current()
+		if userErr != nil {
+			return fmt.Errorf("failed to get current user: %w", userErr)
 		}
+		cmd = exec.Command("su", "-c", strings.Join(args, " "))
+		if u != nil {
+			cmd.Env = append(os.Environ(), "SUDO_USER="+u.Username)
+		}
+	}
 
-		// Re-run with sudo
-		sudoCmd := exec.Command("sudo", append([]string{exe}, os.Args[1:]...)...)
-		sudoCmd.Stdin = os.Stdin
-		sudoCmd.Stdout = os.Stdout
-		sudoCmd.Stderr = os.Stderr
-		if err := sudoCmd.Run(); err != nil {
-			return err
-		}
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	if  err == nil {
 		os.Exit(0)
 	}
-	return nil
+	return err
+}
+
+func escape(arg string) string {
+	return fmt.Sprintf("'%v'", strings.ReplaceAll(arg, "'", "'\\''"))
 }

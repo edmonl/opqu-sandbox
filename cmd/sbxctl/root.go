@@ -1,14 +1,17 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"github.com/spf13/cobra"
 )
 
 var rootDir string
+var whitespacePattern = regexp.MustCompile(`\s`)
 
 var rootCmd = &cobra.Command{
 	Use:   "sbxctl",
@@ -20,7 +23,13 @@ var rootCmd = &cobra.Command{
 		}
 
 		if abs, err := filepath.Abs(rootDir); err == nil {
+			if whitespacePattern.MatchString(rootDir) {
+				return errors.New("sandbox root directory path cannot contain whitespace")
+			}
 			rootDir = abs
+			// Create the root directory with the current user.
+			// Ignore the error as the directory may be created later with root user.
+			os.MkdirAll(rootDir, 0755)
 		} else {
 			return fmt.Errorf("failed to resolve absolute path for root: %w", err)
 		}

@@ -101,7 +101,7 @@ func showGlobalStatus() error {
 
 	fmt.Println("\n--- Host Commands ---")
 	commands := []string{
-		"systemctl", "systemd-nspawn", "systemd-run", "machinectl", "tar", "zstd", "ip",
+		"systemctl", "systemd-nspawn", "systemd-run", "machinectl", "ip",
 	}
 	for _, c := range commands {
 		status := getCommandStatus(c)
@@ -154,7 +154,7 @@ func showSandboxStatus(name string) error {
 		errs = append(errs, "rootfs missing")
 	}
 
-	tarball := filepath.Join(rootDir, "rootfs", fmt.Sprintf("%s.base.tar.zst", name))
+	tarball := filepath.Join(rootDir, "rootfs", fmt.Sprintf("%v.base.tar.zst", name))
 	if info, err := os.Stat(tarball); err == nil {
 		if info.Mode().IsRegular() {
 			fmt.Printf("Base Image:  EXISTS (%v)\n", filepath.Base(tarball))
@@ -179,6 +179,8 @@ func showSandboxStatus(name string) error {
 
 	conf, err := config.LoadConf(rootDir, name)
 	if err == nil {
+		fmt.Printf("Network Zone:   %v\n", conf.NetworkZone)
+
 		var displayPorts string
 		portSource := "(config)"
 

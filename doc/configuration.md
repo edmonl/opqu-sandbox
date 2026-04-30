@@ -51,9 +51,10 @@ Each `{name}.conf` file provides extra runtime configuration in dotenv format fo
 # RESOLV_CONF=replace-uplink
 
 # Sandbox-specific settings
-PORTS="tcp:8080:8080 udp:463"   # space-separated port mapping, each becomes a --port= flag of `systemd-nspawn`, no mapping by default
+PORTS="tcp:8080:8080 udp:463"   # space-separated port mapping, no mapping by default
 ```
 
+Each port mapping becomes a `--port=` flag of `systemd-nspawn`. Protocol is `tcp` when omitted, and sandbox port is assumed the same as the host port when omitted.
 Without port mapping, multiple sandboxes can run simultaneously without port collisions since each has its own IP on its own bridge.
 However, if two sandboxes map the same host-side port, one will fail at start time if the other is already running.
 

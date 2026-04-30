@@ -1,6 +1,6 @@
 # Root Directory Structure
 
-The sandbox root directory stores everything `sbxctl` creates and manages. Deleting it may require `sudo` and gives you a clean slate. You may move it freely with according [configuration](configuration.md#root-directory).
+The sandbox root directory stores everything `sbxctl` creates and manages. Deleting it may require `sudo` and gives you a clean slate. You may move it freely with according [Configuration](configuration.md#root-directory).
 
 ## Layout
 

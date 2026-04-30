@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/edmonl/opqu-sandbox/internal/config"
 	"github.com/edmonl/opqu-sandbox/internal/sandbox"
 	"github.com/spf13/cobra"
 )
@@ -29,17 +30,22 @@ var deleteCmd = &cobra.Command{
 		}
 
 		if running {
-			return fmt.Errorf("sandbox '%s' is running; stop it first", name)
+			return fmt.Errorf("sandbox %v is running; stop it first", name)
+		}
+
+		conf, err := config.LoadConf(rootDir, name)
+		if err != nil {
+			return err
 		}
 
 		rootfs := filepath.Join(rootDir, "rootfs", name)
 		if err := os.RemoveAll(rootfs); err != nil {
-			return fmt.Errorf("failed to remove rootfs for sandbox '%s': %v", name, err)
+			return fmt.Errorf("failed to remove rootfs for sandbox %v: %v", name, err)
 		}
 
-		tarball := filepath.Join(rootDir, "rootfs", fmt.Sprintf("%s.base.tar.zst", name))
+		tarball := filepath.Join(rootDir, "rootfs", fmt.Sprintf("%v.base.tar.zst", name))
 		if err := os.Remove(tarball); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("failed to remove base tarball for sandbox '%s': %v", name, err)
+			return fmt.Errorf("failed to remove base tarball for sandbox %v: %v", name, err)
 		}
 
 		// Check for kept configs
@@ -59,16 +65,9 @@ var deleteCmd = &cobra.Command{
 		if len(found) > 0 {
 			fmt.Println("Keeping configuration files in conf/:")
 			for _, f := range found {
-				fmt.Printf("  %s\n", f)
+				fmt.Printf("  %v\n", f)
 			}
 		}
-
-		bridge := sandbox.BridgeName(name)
-		machine := sandbox.MachineName(name)
-
-		// Ignore errors for cleanup commands
-		exec.Command("ip", "link", "delete", bridge).Run()
-		exec.Command("systemctl", "reset-failed", machine).Run()
 
 		return nil
 	},

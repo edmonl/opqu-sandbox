@@ -2,44 +2,27 @@ package sandbox
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
 )
 
-var nameRegex = regexp.MustCompile(`^[a-z0-9-]{1,12}$`)
+var nameRegex = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 func ValidateName(name string) error {
-	if !nameRegex.MatchString(name) {
-		return fmt.Errorf("sandbox name '%s' is invalid (%d characters); must be 1–12 characters, lowercase alphanumeric and hyphens only", name, len(name))
+	if nameRegex.MatchString(name) {
+		return nil
 	}
-	return nil
+	return fmt.Errorf("sandbox name %v is invalid, must be lowercase alphanumeric and hyphens only", name)
 }
 
 func MachineName(name string) string {
-	return fmt.Sprintf("opqu-sbx-%s", name)
+	return fmt.Sprintf("opqu-sbx-%v", name)
 }
 
-func ZoneName(name string) string {
-	basePrefix := "opqu"
-	full := fmt.Sprintf("%s-%s", basePrefix, name)
-
-	if len(full) <= 12 {
-		return full
-	}
-
-	available := 12 - len(name)
-	if available >= 2 {
-		return fmt.Sprintf("%s-%s", basePrefix[:available-1], name)
-	} else if available == 1 {
-		return fmt.Sprintf("o%s", name)
-	} else {
-		return name[:12]
-	}
-}
-
-func BridgeName(name string) string {
-	return fmt.Sprintf("vz-%s", ZoneName(name))
+func BridgeName(zone string) string {
+	return fmt.Sprintf("vz-%v", zone)
 }
 
 func IsRunning(name string) (bool, error) {
@@ -61,20 +44,10 @@ func IsRunning(name string) (bool, error) {
 	return false, nil
 }
 
-func BuildIncludeArg(packages []string, audio bool) []string {
-	var finalPkgs []string
-	seen := make(map[string]bool)
-
-	for _, pkg := range packages {
-		if !seen[pkg] {
-			finalPkgs = append(finalPkgs, pkg)
-			seen[pkg] = true
-		}
-	}
-
-	if audio && !seen["pipewire-pulse"] {
-		finalPkgs = append(finalPkgs, "pipewire-pulse")
-	}
-
-	return finalPkgs
+func RunCmd(cmd string, args ...string) error {
+	execCmd := exec.Command(cmd, args...)
+	execCmd.Stdin = os.Stdin
+	execCmd.Stdout = os.Stdout
+	execCmd.Stderr = os.Stderr
+	return execCmd.Run()
 }
