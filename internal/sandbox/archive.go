@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"archive/tar"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -59,12 +60,24 @@ func Compress(srcDir, destFile string, level zstd.EncoderLevel) error {
 
 	parentDir := filepath.Dir(srcDir)
 
+	// Map to track hard links: (dev, ino) -> first path in archive
+	seenFiles := map[struct{ dev, ino uint64 }]string{}
+
 	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		header, err := tar.FileInfoHeader(info, "")
+		var realPath string
+		if info.Mode()&os.ModeSymlink != 0 {
+			link, e := os.Readlink(path)
+			if e != nil {
+				return e
+			}
+			realPath = link
+		}
+
+		header, err := tar.FileInfoHeader(info, realPath)
 		if err != nil {
 			return err
 		}
@@ -75,17 +88,22 @@ func Compress(srcDir, destFile string, level zstd.EncoderLevel) error {
 		}
 		header.Name = relPath
 
-		if info.Mode()&os.ModeSymlink != 0 {
-			link, err := os.Readlink(path)
-			if err != nil {
-				return err
-			}
-			header.Linkname = link
-		}
-
 		if stat, ok := info.Sys().(*syscall.Stat_t); ok {
 			header.Uid = int(stat.Uid)
 			header.Gid = int(stat.Gid)
+
+			// Handle hard links
+			if !info.IsDir() {
+				key := struct{ dev, ino uint64 }{dev: uint64(stat.Dev), ino: stat.Ino}
+				if firstPath, seen := seenFiles[key]; seen {
+					header.Typeflag = tar.TypeLink
+					header.Linkname = firstPath
+					header.Size = 0
+				} else {
+					seenFiles[key] = relPath
+				}
+			}
+
 			// For block/char devices
 			if info.Mode()&(os.ModeDevice|os.ModeCharDevice) != 0 {
 				header.Devmajor = int64(stat.Rdev >> 8 & 0xfff)
@@ -97,7 +115,7 @@ func Compress(srcDir, destFile string, level zstd.EncoderLevel) error {
 			return err
 		}
 
-		if info.Mode().IsRegular() {
+		if header.Typeflag == tar.TypeReg {
 			file, err := os.Open(path)
 			if err != nil {
 				return err
@@ -119,6 +137,19 @@ func Extract(srcFile, destDir string) error {
 	}
 	defer f.Close()
 
+	if e := os.MkdirAll(destDir, 0755); e != nil {
+		return e
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	if e := os.Chdir(destDir); e != nil {
+		return e
+	}
+	defer os.Chdir(cwd)
+
 	zr, err := zstd.NewReader(f)
 	if err != nil {
 		return err
@@ -136,7 +167,7 @@ func Extract(srcFile, destDir string) error {
 			return err
 		}
 
-		target := filepath.Join(destDir, header.Name)
+		target := header.Name
 
 		switch header.Typeflag {
 		case tar.TypeDir:
@@ -147,7 +178,7 @@ func Extract(srcFile, destDir string) error {
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 				return err
 			}
-			f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR|os.O_TRUNC, os.FileMode(header.Mode))
+			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode))
 			if err != nil {
 				return err
 			}
@@ -167,7 +198,7 @@ func Extract(srcFile, destDir string) error {
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 				return err
 			}
-			if err := os.Link(filepath.Join(destDir, header.Linkname), target); err != nil {
+			if err := os.Link(header.Linkname, target); err != nil {
 				return err
 			}
 		case tar.TypeChar, tar.TypeBlock:
@@ -200,7 +231,9 @@ func Extract(srcFile, destDir string) error {
 
 		// Restore timestamps (not for symlinks as os.Chtimes follows them)
 		if header.Typeflag != tar.TypeSymlink {
-			_ = os.Chtimes(target, header.AccessTime, header.ModTime)
+			if err := os.Chtimes(target, header.AccessTime, header.ModTime); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to restore timestamps for %v: %v\n", target, err)
+			}
 		}
 	}
 	return nil

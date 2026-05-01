@@ -14,9 +14,10 @@ var rootDir string
 var whitespacePattern = regexp.MustCompile(`\s`)
 
 var rootCmd = &cobra.Command{
-	Use:   "sbxctl",
-	Short: "the single executable binary of opqu-sandbox",
-	Long:  "A tool for managing disposable systemd-nspawn sandboxes.",
+	Use:           "sbxctl",
+	Short:         "the single executable binary of opqu-sandbox",
+	Long:          "A tool for managing disposable systemd-nspawn sandboxes.",
+	SilenceUsage:  true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if !cmd.HasParent() {
 			return nil

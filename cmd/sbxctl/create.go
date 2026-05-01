@@ -56,6 +56,27 @@ var createCmd = &cobra.Command{
 			return fmt.Errorf("rootfs of sandbox %v already exists", name)
 		}
 
+		if _, err := os.Stat(tarball); err == nil {
+			prompt := fmt.Sprintf("Base image %v already exists. Press [Enter] directly to recreate rootfs from the base image, or enter \"overwrite\" to overwrite it with a new rootfs (Ctrl+C to cancel): ", filepath.Base(tarball))
+			input, err := sandbox.Confirm(prompt)
+			if err != nil {
+				return err
+			}
+			if input == "" {
+				if err := sandbox.Extract(tarball, rootfs); err != nil {
+					return fmt.Errorf("failed to extract from base image: %v", err)
+				}
+				fmt.Printf("Sandbox %v recreated from existing base image.\n", name)
+				return nil
+			}
+			if input != "overwrite" {
+				fmt.Fprintf(os.Stderr, "Operation cancelled.\n")
+				return nil
+			}
+
+			fmt.Println("Creating fresh rootfs and overwriting existing base image")
+		}
+
 		if _, err := exec.LookPath("mmdebstrap"); err == nil {
 			mmdebstrapArgs := []string{
 				"--variant=" + conf.Variant,

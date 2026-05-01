@@ -12,7 +12,7 @@ import (
 
 var startCmd = &cobra.Command{
 	Use:   "start [name]",
-	Short: "Boot a sandbox with configured mounts, ports, and optional audio",
+	Short: "Power on a sandbox",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -55,15 +55,6 @@ var startCmd = &cobra.Command{
 
 		for _, m := range mounts {
 			hostPath := m.HostPath
-			if hostPath == "" {
-				tmp, err := os.MkdirTemp("/var/tmp", "sbx-scratch-"+name+"-")
-				if err != nil {
-					return fmt.Errorf("failed to create scratch directory: %v", err)
-				}
-				hostPath = tmp
-				runArgs = append(runArgs, "--property=ExecStopPost=/bin/rm -rf "+hostPath)
-			}
-
 			if m.ReadOnly {
 				runArgs = append(runArgs, fmt.Sprintf("--bind-ro=%v:%v", hostPath, m.SandboxPath))
 			} else {

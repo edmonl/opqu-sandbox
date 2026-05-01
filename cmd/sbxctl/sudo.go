@@ -1,15 +1,15 @@
 package main
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strings"
+
+	"github.com/edmonl/opqu-sandbox/internal/sandbox"
 )
 
 func sudo() error {
@@ -27,16 +27,14 @@ func sudo() error {
 		return errors.New("neither sudo nor su found in PATH")
 	}
 
-	fmt.Printf("This operation requires to invoke %v. Press [Enter] directly to escalate, or Ctrl+C to cancel: ", escalationCmd)
-	reader := bufio.NewReader(os.Stdin)
-	if input, err := reader.ReadString('\n'); err == io.EOF || (err == nil && input != "\n") {
-		if err == io.EOF {
-			fmt.Println()
-		}
+	prompt := fmt.Sprintf("This operation requires to invoke %v. Press [Enter] directly to escalate, or Ctrl+C to cancel: ", escalationCmd)
+	input, err := sandbox.Confirm(prompt)
+	if err != nil {
+		return err
+	}
+	if input != "" {
 		fmt.Println("Escalation cancelled.")
 		os.Exit(0)
-	} else if err != nil {
-		return err
 	}
 
 	exe, err := filepath.Abs(os.Args[0])
