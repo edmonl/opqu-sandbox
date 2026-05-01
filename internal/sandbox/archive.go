@@ -137,7 +137,7 @@ func Extract(srcFile, destDir string) error {
 	}
 	defer f.Close()
 
-	if e := os.MkdirAll(destDir, 0755); e != nil {
+	if e := os.MkdirAll(destDir, 0o755); e != nil {
 		return e
 	}
 
@@ -175,7 +175,7 @@ func Extract(srcFile, destDir string) error {
 				return err
 			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
 			}
 			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode))
@@ -188,21 +188,21 @@ func Extract(srcFile, destDir string) error {
 			}
 			f.Close()
 		case tar.TypeSymlink:
-			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
 			}
 			if err := os.Symlink(header.Linkname, target); err != nil {
 				return err
 			}
 		case tar.TypeLink:
-			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
 			}
 			if err := os.Link(header.Linkname, target); err != nil {
 				return err
 			}
 		case tar.TypeChar, tar.TypeBlock:
-			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
 			}
 			mode := uint32(header.Mode)
@@ -216,7 +216,7 @@ func Extract(srcFile, destDir string) error {
 				return err
 			}
 		case tar.TypeFifo:
-			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
 			}
 			if err := syscall.Mkfifo(target, uint32(header.Mode)); err != nil {
