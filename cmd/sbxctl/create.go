@@ -85,7 +85,7 @@ var createCmd = &cobra.Command{
 				"--setup-hook=mkdir -p \"$1/var/cache/apt/archives/\"",
 				"--setup-hook=" + fmt.Sprintf("sync-in %q /var/cache/apt/archives/", pkgCache),
 				"--customize-hook=" + fmt.Sprintf("sync-out /var/cache/apt/archives %q", pkgCache),
-				"--customize-hook=" + fmt.Sprintf(`chroot "$1" /bin/sh -c %q`, getUserSetup(conf)),
+				"--customize-hook=" + fmt.Sprintf(`chroot "$1" /bin/sh -c %q`, getSetupScript(name, conf)),
 				"--customize-hook=" + `chroot "$1" systemctl enable systemd-networkd`,
 			}
 
@@ -115,9 +115,9 @@ var createCmd = &cobra.Command{
 				return fmt.Errorf("provisioning sandbox %v with debootstrap failed: %v", name, err)
 			}
 
-			// Create user and lock root
-			if err := sandbox.RunCmd("chroot", sandboxFs, "/bin/sh", "-c", getUserSetup(conf)); err != nil {
-				return fmt.Errorf("failed to create sandbox user: %v", err)
+			// Provision sandbox: hostname, hosts, and user
+			if err := sandbox.RunCmd("chroot", sandboxFs, "/bin/sh", "-c", getSetupScript(name, conf)); err != nil {
+				return fmt.Errorf("failed to provision sandbox: %v", err)
 			}
 
 			// Enable networking
@@ -136,7 +136,7 @@ var createCmd = &cobra.Command{
 	},
 }
 
-func getUserSetup(conf *config.Config) string {
+func getSetupScript(name string, conf *config.Config) string {
 	var rootAction string
 	if conf.RootPassword == "" {
 		rootAction = "passwd -l root"
@@ -153,7 +153,11 @@ func getUserSetup(conf *config.Config) string {
 		createUserCmd = fmt.Sprintf("useradd -m -u %v -s /bin/bash %v && %v && passwd -l %v", uid, userName, rootAction, userName)
 	}
 
-	return createUserCmd
+	// Set hostname and basic /etc/hosts
+	hostnameCmd := fmt.Sprintf("echo %v > /etc/hostname", name)
+	hostsCmd := fmt.Sprintf("printf '127.0.0.1\\tlocalhost\\n127.0.1.1\\t%v\\n\\n# The following lines are desirable for IPv6 capable hosts\\n::1\\tlocalhost ip6-localhost ip6-loopback\\nff02::1\\tip6-allnodes\\nff02::2\\tip6-allrouters\\n' > /etc/hosts", name)
+
+	return fmt.Sprintf("%v && %v && %v", hostnameCmd, hostsCmd, createUserCmd)
 }
 
 func init() {
