@@ -24,8 +24,8 @@ var startCmd = &cobra.Command{
 			return err
 		}
 
-		rootfs := filepath.Join(rootDir, "rootfs", name)
-		if _, err := os.Stat(rootfs); err != nil {
+		sandboxFs := filepath.Join(rootDir, "rootfs", name)
+		if _, err := os.Stat(sandboxFs); err != nil {
 			return fmt.Errorf("sandbox %v does not exist", name)
 		}
 
@@ -48,18 +48,20 @@ var startCmd = &cobra.Command{
 			"systemd-nspawn",
 			"--boot",
 			"--machine=" + machine,
-			"--directory=" + rootfs,
+			"--directory=" + sandboxFs,
 			"--network-zone=" + conf.NetworkZone,
 			"--resolv-conf=" + conf.ResolvConf,
 		}
 
 		for _, m := range mounts {
-			hostPath := m.HostPath
+			var flag string
 			if m.ReadOnly {
-				runArgs = append(runArgs, fmt.Sprintf("--bind-ro=%v:%v", hostPath, m.SandboxPath))
+				flag = "--bind-ro"
 			} else {
-				runArgs = append(runArgs, fmt.Sprintf("--bind=%v:%v", hostPath, m.SandboxPath))
+				flag = "--bind"
 			}
+
+			runArgs = append(runArgs, fmt.Sprintf("%v=%v:%v", flag, m.HostPath, m.SandboxPath))
 		}
 
 		for _, p := range conf.Ports {

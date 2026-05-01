@@ -1,10 +1,7 @@
-// Package sandbox provides utilities.
 package sandbox
 
 import (
-	"bufio"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"regexp"
@@ -12,21 +9,6 @@ import (
 )
 
 var nameRegex = regexp.MustCompile(`^[a-z0-9-]+$`)
-
-func Confirm(prompt string) (string, error) {
-	fmt.Fprint(os.Stderr, prompt)
-	reader := bufio.NewReader(os.Stdin)
-	input, err := reader.ReadString('\n')
-	if err != nil{
-		if err == io.EOF  {
-			fmt.Println()
-			return "^D", nil
-		}
-		return "", err
-	}
-
-	return strings.TrimRight(input, "\r\n"), nil
-}
 
 func ValidateName(name string) error {
 	if nameRegex.MatchString(name) {

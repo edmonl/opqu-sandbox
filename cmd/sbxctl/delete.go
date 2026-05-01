@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/edmonl/opqu-sandbox/internal/config"
 	"github.com/edmonl/opqu-sandbox/internal/sandbox"
 	"github.com/spf13/cobra"
 )
@@ -15,11 +14,12 @@ var deleteCmd = &cobra.Command{
 	Short: "Remove a sandbox, its base tarball, and network interfaces",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := sudo(); err != nil {
-			return err
-		}
 		name := args[0]
 		if err := sandbox.ValidateName(name); err != nil {
+			return err
+		}
+
+		if err := sudo(); err != nil {
 			return err
 		}
 
@@ -30,11 +30,6 @@ var deleteCmd = &cobra.Command{
 
 		if running {
 			return fmt.Errorf("sandbox %v is running; stop it first", name)
-		}
-
-		conf, err := config.LoadConf(rootDir, name)
-		if err != nil {
-			return err
 		}
 
 		rootfs := filepath.Join(rootDir, "rootfs", name)

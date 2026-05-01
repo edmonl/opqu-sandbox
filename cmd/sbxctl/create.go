@@ -9,6 +9,7 @@ import (
 
 	"github.com/edmonl/opqu-sandbox/internal/config"
 	"github.com/edmonl/opqu-sandbox/internal/sandbox"
+	"github.com/edmonl/opqu-sandbox/internal/util"
 	"github.com/klauspost/compress/zstd"
 	"github.com/spf13/cobra"
 )
@@ -58,7 +59,7 @@ var createCmd = &cobra.Command{
 
 		if _, err := os.Stat(tarball); err == nil {
 			prompt := fmt.Sprintf("Base image %v already exists. Press [Enter] directly to recreate rootfs from the base image, or enter \"overwrite\" to overwrite it with a new rootfs (Ctrl+C to cancel): ", filepath.Base(tarball))
-			input, err := sandbox.Confirm(prompt)
+			input, err := util.Confirm(prompt)
 			if err != nil {
 				return err
 			}
