@@ -26,7 +26,7 @@ var startCmd = &cobra.Command{
 
 		sandboxFs := filepath.Join(rootDir, "rootfs", name)
 		if _, err := os.Stat(sandboxFs); err != nil {
-			return fmt.Errorf("sandbox %v does not exist", name)
+			return fmt.Errorf("cannot access sandbox rootfs: %w", err)
 		}
 
 		conf, err := config.LoadConf(rootDir, name)
@@ -40,7 +40,6 @@ var startCmd = &cobra.Command{
 		}
 
 		machine := sandbox.MachineName(name)
-
 		runArgs := []string{
 			"--unit=" + machine,
 			"--description=opqu-sandbox " + name,
@@ -69,7 +68,7 @@ var startCmd = &cobra.Command{
 		}
 
 		if err := sandbox.RunCmd("systemd-run", runArgs...); err != nil {
-			return fmt.Errorf("failed to start sandbox %v: %v", name, err)
+			return fmt.Errorf("failed to start sandbox: %v", err)
 		}
 
 		return nil

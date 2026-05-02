@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -54,7 +55,7 @@ var createCmd = &cobra.Command{
 		}
 
 		if _, err := os.Stat(sandboxFs); err == nil {
-			return fmt.Errorf("rootfs of sandbox %v already exists", name)
+			return errors.New("sandbox rootfs already exists")
 		}
 
 		if _, err := os.Stat(tarball); err == nil {
@@ -96,7 +97,7 @@ var createCmd = &cobra.Command{
 			mmdebstrapArgs = append(mmdebstrapArgs, conf.Distro, sandboxFs, conf.Mirror)
 
 			if err := sandbox.RunCmd("mmdebstrap", mmdebstrapArgs...); err != nil {
-				return fmt.Errorf("provisioning sandbox %v with mmdebstrap failed: %v", name, err)
+				return fmt.Errorf("provisioning sandbox with mmdebstrap failed: %v", err)
 			}
 		} else if _, err := exec.LookPath("debootstrap"); err == nil {
 			fmt.Println("mmdebstrap not found, falling back to debootstrap")
@@ -112,7 +113,7 @@ var createCmd = &cobra.Command{
 			debootstrapArgs = append(debootstrapArgs, conf.Distro, sandboxFs, conf.Mirror)
 
 			if err := sandbox.RunCmd("debootstrap", debootstrapArgs...); err != nil {
-				return fmt.Errorf("provisioning sandbox %v with debootstrap failed: %v", name, err)
+				return fmt.Errorf("provisioning sandbox with debootstrap failed: %v", err)
 			}
 
 			// Provision sandbox: hostname, hosts, and user
@@ -129,7 +130,7 @@ var createCmd = &cobra.Command{
 		}
 
 		if err := sandbox.Compress(sandboxFs, tarball, zstd.SpeedDefault); err != nil {
-			return fmt.Errorf("failed to create base tarball for sandbox %v: %v", name, err)
+			return fmt.Errorf("failed to create base tarball for sandbox: %v", err)
 		}
 
 		return nil

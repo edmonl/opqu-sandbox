@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -19,47 +21,42 @@ var deleteCmd = &cobra.Command{
 			return err
 		}
 
-		if err := sudo(); err != nil {
-			return err
-		}
-
 		running, err := sandbox.IsRunning(name)
 		if err != nil {
 			return err
 		}
 
 		if running {
-			return fmt.Errorf("sandbox %v is running; stop it first", name)
+			return errors.New("cannot delete a running sandbox")
 		}
 
-		rootfs := filepath.Join(rootDir, "rootfs", name)
-		if err := os.RemoveAll(rootfs); err != nil {
-			return fmt.Errorf("failed to remove rootfs for sandbox %v: %v", name, err)
+		if err := sudo(); err != nil {
+			return err
 		}
 
-		tarball := filepath.Join(rootDir, "rootfs", fmt.Sprintf("%v.base.tar.zst", name))
-		if err := os.Remove(tarball); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("failed to remove base tarball for sandbox %v: %v", name, err)
+		rootfs := filepath.Join(rootDir, "rootfs")
+		if err := os.RemoveAll(filepath.Join(rootfs, name)); err != nil {
+			return fmt.Errorf("failed to delete sandbox rootfs: %v", err)
 		}
 
-		// Check for kept configs
-		configFiles := []string{
-			filepath.Join(rootDir, "conf", name+".conf"),
-			filepath.Join(rootDir, "conf", name+".packages"),
-			filepath.Join(rootDir, "conf", name+".mounts"),
+		tarball := filepath.Join(rootfs, fmt.Sprintf("%v.base.tar.zst", name))
+		if err := os.Remove(tarball); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("failed to delete base tarball: %v", err)
 		}
 
+		confDir := filepath.Join(rootDir, "conf")
 		var found []string
-		for _, f := range configFiles {
-			if _, err := os.Stat(f); err == nil {
-				found = append(found, filepath.Base(f))
+		for _, ext := range []string{".conf", ".packages", ".mounts"} {
+			fName := name + ext
+			if _, err := os.Stat(filepath.Join(confDir, fName)); err == nil {
+				found = append(found, fName)
 			}
 		}
 
 		if len(found) > 0 {
-			fmt.Println("Keeping configuration files in conf/:")
+			fmt.Println("Keeping configuration files:")
 			for _, f := range found {
-				fmt.Printf("  %v\n", f)
+				fmt.Println(f)
 			}
 		}
 

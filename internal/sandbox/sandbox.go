@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -27,21 +28,16 @@ func BridgeName(zone string) string {
 
 func IsRunning(name string) (bool, error) {
 	machine := MachineName(name)
-	cmd := exec.Command("machinectl", "list", "--no-legend")
+	cmd := exec.Command("machinectl", "show", machine, "--property=State")
 	output, err := cmd.Output()
-	if err != nil {
-		return false, fmt.Errorf("failed to query sandbox state with machinectl: %v", err)
+	if err == nil {
+		return strings.TrimSpace(string(output)) == "State=running", nil
 	}
 
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
-		fields := strings.Fields(line)
-		if len(fields) > 0 && fields[0] == machine {
-			return true, nil
-		}
+	if _, ok := errors.AsType[*exec.ExitError](err); ok {
+		return false, nil
 	}
-
-	return false, nil
+	return false, fmt.Errorf("failed to get sandbox state with machinectl: %v", err)
 }
 
 func RunCmd(cmd string, args ...string) error {
