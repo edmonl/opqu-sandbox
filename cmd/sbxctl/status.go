@@ -182,6 +182,12 @@ func showGlobalStatus() error {
 }
 
 func showSandboxStatus(name string) error {
+	if err := sandbox.ValidateName(name); err != nil {
+		return err
+	}
+
+	fmt.Printf(normalFormat, "Machine Name:", sandbox.MachineName(name))
+
 	rootfs := filepath.Join(rootDir, "rootfs")
 
 	var format string

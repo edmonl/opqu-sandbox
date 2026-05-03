@@ -1,153 +1,3 @@
-# opqu-sandbox — Specification
-
-## Stack
-- Debian trixie (Debian 13, stable as of mid-2025)
-- mmdebstrap + systemd-nspawn (no user namespaces; real host UIDs inside container)
-- Machine names and systemd units are prefixed with `opqu-sbx-`
-- Network bridges are prefixed with `vz-` and use a shortened zone name (see R3)
-
-## R1 — Bootstrapping (`sbxctl create {name}`)
-
-- If `rootfs/{name}/` already exists, print a clear error and exit 1:
-  `"sandbox '{name}' already exists; run 'sbxctl reset {name}' to wipe it"`
-  Note: if a previous `sbxctl create` was run and the rootfs was later manually
-  deleted but the tarball kept, running `sbxctl create` again will overwrite the
-  tarball. This is expected and acceptable.
-- Source `conf/default` if it exists; all values have defaults so the file
-  is optional. Defaults: `DISTRO=trixie`, `MIRROR=http://deb.debian.org/debian`,
-  `VARIANT=standard`, `SANDBOX_USER=$(whoami)`.
-- Resolve `SANDBOX_USER` (defaulting to `$(whoami)` if unset),
-  then verify the user exists on the host with `id "$SANDBOX_USER"`.
-  If the user does not exist, print a clear error and exit 1 before doing
-  anything else:
-  `"SANDBOX_USER '{name}' does not exist on the host; create it first"`
-  This check must happen before mmdebstrap runs, since the user's UID is
-  embedded in the bootstrap hook and cannot be corrected afterwards without
-  a full re-bootstrap.
-- Create `pkg-cache/` if it does not already exist:
-  ```bash
-  sudo mkdir -p "$ROOT_DIR/pkg-cache"
-  ```
-- Read `conf/{name}.conf` if it exists and source `AUDIO` from it (default:
-  `AUDIO=no`). If `AUDIO=yes`, `pipewire-pulse` will be merged into the
-  package list (see next step).
-- Read `conf/{name}.packages` if it exists. Strip comment lines (starting with
-  `#`) and blank lines. If `AUDIO=yes`, append `pipewire-pulse` to the
-  resulting list (deduplicate if it was already listed explicitly). If the
-  final list is non-empty, pass as a comma-separated list via `--include`.
-  If the file does not exist or is empty after stripping (and `AUDIO=no`),
-  omit `--include` entirely.
-- Run `mmdebstrap` if available. If `mmdebstrap` is missing from the host, fall
-  back to `debootstrap`.
-- **If using `mmdebstrap`**: Run with both customize hooks in a single invocation:
-  ```bash
-  sudo mmdebstrap \
-    --variant=$VARIANT \
-    [--include={package-list}] \
-    --skip=essential/unlink \
-    --setup-hook='mkdir -p "$1/var/cache/apt/archives/"' \
-    --setup-hook='sync-in "$ROOT_DIR/pkg-cache" /var/cache/apt/archives/' \
-    --customize-hook='sync-out /var/cache/apt/archives "$ROOT_DIR/pkg-cache"' \
-    --customize-hook='chroot "$1" systemctl enable systemd-networkd' \
-    --customize-hook="chroot \"$1\" /bin/sh -c 'useradd -m -u $(id -u "$SANDBOX_USER") -s /bin/bash $SANDBOX_USER \
-      && passwd -l root \
-      && passwd -l $SANDBOX_USER'" \
-    $DISTRO \
-    "$ROOT_DIR/rootfs/{name}" \
-    "$MIRROR"
-  ```
-- **If using `debootstrap` (fallback)**: Run in sequence since it lacks hooks:
-  1. Bootstrap the base:
-     ```bash
-     sudo debootstrap \
-       --variant=$VARIANT \
-       [--include={package-list}] \
-       $DISTRO \
-       "$ROOT_DIR/rootfs/{name}" \
-       "$MIRROR"
-     ```
-  2. Enable networking:
-     ```bash
-     sudo chroot "$ROOT_DIR/rootfs/{name}" systemctl enable systemd-networkd
-     ```
-  3. Create the user and lock root:
-     ```bash
-     sudo chroot "$ROOT_DIR/rootfs/{name}" /bin/sh -c "useradd -m -u $(id -u "$SANDBOX_USER") -s /bin/bash $SANDBOX_USER \
-       && passwd -l root \
-       && passwd -l $SANDBOX_USER"
-     ```
-  Note: `debootstrap` does not support the shared `pkg-cache/` logic; caches
-  are ignored during fallback.
-  - `--variant=$VARIANT` controls the baseline package set, read from
-    `conf/default`. Default is `standard`, which provides a complete,
-    friction-free base system (systemd, networking tools, curl, sudo, etc.)
-    with no additional configuration needed. Users who want a leaner image
-    can set `VARIANT=required` and manage extra packages via `{name}.packages`.
-  - `$DISTRO` and `$MIRROR` are also read from `conf/default`.
-  - The shared `pkg-cache/` is synchronized into
-    `/var/cache/apt/archives/` at setup time and synchronized back out at
-    the end via mmdebstrap's `sync-in`/`sync-out` special hooks.
-  - `--skip=essential/unlink` is required so downloaded `.deb` files remain
-    in `/var/cache/apt/archives/` long enough for the final `sync-out`.
-  - Both `--customize-hook` flags go on the same mmdebstrap call; hooks run
-    in order after all packages are installed inside the chroot.
-  - `sudo` is required here because this project does not use user
-    namespaces. `mmdebstrap` must run in its real-root mode so the resulting
-    directory rootfs has normal ownership and permissions for later
-    `systemd-nspawn` use.
-  - The first hook enables systemd-networkd so networking is live on first
-    boot with no manual setup. Because mmdebstrap hooks run on the host side,
-    the command explicitly uses `chroot "$1"` to target the new rootfs.
-  - The second hook creates the container user. `SANDBOX_USER` and its UID
-    are resolved on the host before mmdebstrap runs. The hook explicitly
-    enters the target rootfs via `chroot "$1"` before running `useradd` and
-    `passwd`, so those commands affect the container image rather than the
-    host. UID inside the container matches the host UID exactly, so
-    bind-mounted files are owned correctly on both sides without any
-    remapping.
-  - `root` is locked (password disabled) — the only way to get a root shell
-    inside is `sudo machinectl shell root@opqu-sbx-{name}` from the host,
-    which already requires host sudo; no escalation path from inside.
-  - `SANDBOX_USER` is also locked; entry is always via `machinectl shell`
-    which does not require a password.
-- Create base tarball immediately after bootstrap:
-
-
----
-
-## R5 — Lifecycle
-
-- `--machine=opqu-sbx-{name}` registers the container with machinectl under
-  that name; all machinectl commands use this name
-- Once registered, `machinectl shell opqu-sbx-{name}` and
-  `machinectl poweroff opqu-sbx-{name}` work normally regardless of where
-  the rootfs lives
-- Logs go to journald; read with `journalctl -M opqu-sbx-{name}`
-- `--collect` removes the transient unit automatically after container stops
-
-### Commands
-
-| Command | Implementation |
-|---|---|
-| `sbxctl create {name}` | `mmdebstrap` (with cache + hooks) or `debootstrap` (fallback) + tarball (see R1) |
-| `sbxctl start {name}` | `sudo systemd-run` invocation above, assembled from conf + mounts |
-| `sbxctl shell {name} [command...]` | `sudo machinectl shell SANDBOX_USER@opqu-sbx-{name} [command...]` |
-| `sbxctl stop {name}` | if running: `sudo machinectl poweroff opqu-sbx-{name}`; if already stopped: exit 0 |
-| `sbxctl reset {name}` | refuse if running + wipe rootfs + re-extract tarball (see R6) |
-| `sbxctl snapshot {name} [output_path]` | refuse if running + write user-owned snapshot tarball of current rootfs (see R8) |
-| `sbxctl restore {name} {snapshot_path}` | refuse if running + wipe rootfs + extract user snapshot (see R9) |
-| `sbxctl delete {name}` | (see doc/uninstall.md) |
-| `sbxctl status` | thin wrapper over `machinectl list` filtered to `opqu-sbx-*` |
-
-If an unrecognised subcommand is given, print a usage summary to stderr and
-exit 1.
-
-### Output from subcommands
-Commands pass subcommand output (stdout and stderr) through to the terminal
-unmodified. Do not capture or summarize output from `machinectl`, `systemd-run`,
-or `mmdebstrap`. Internal archiving operations report errors directly via the `sbxctl` log. The script only emits its own messages for errors it
-detects itself (wrong state, missing files, failed precondition checks).
-
 ### `sbxctl shell`
 Shells in or runs a command as `SANDBOX_USER` via `sudo machinectl shell SANDBOX_USER@opqu-sbx-{name} [command...]`.
 `SANDBOX_USER` is read from `conf/default`; if the file does not exist or
@@ -287,8 +137,9 @@ Notes:
   root-managed
 - Do not change ownership of files inside the archived rootfs; only the output
   archive file itself is owned by the invoking user
-- The archive contains the `{name}/` directory itself, not only its
-  contents, so it can be extracted directly into `ROOT_DIR/rootfs` during restore
+- The archive contains only the *contents* of the rootfs, not the `{name}/`
+  directory itself, so it can be extracted directly into `ROOT_DIR/rootfs/{name}` during restore
+- This ensures snapshots are name-independent; a snapshot of `sbx1` can be restored into `sbx2`.
 - If the rootfs is missing or unreadable, let the internal archiver report the error normally.
 
 ---
@@ -302,14 +153,12 @@ Restores a user-created snapshot over the live rootfs. This is distinct from
    `"sandbox '{name}' is running; stop it first with 'sbxctl stop {name}'"` and exit 1
 2. Before deleting anything, verify that `snapshot_path` exists, is a regular
    file, and is readable. If not, print a clear error and exit 1
-3. Before deleting anything, verify that the archive contains
-   `{name}/` as a top-level entry. If not, print a clear error and exit 1
-4. `sudo rm -rf "$ROOT_DIR/rootfs/{name}"`
-5. `sudo tar --zstd -xf "{snapshot_path}" -C "$ROOT_DIR/rootfs"`
+3. Wipe the current `rootfs/{name}/`
+4. Extract the snapshot archive contents directly into `rootfs/{name}/`
 
 Notes:
 - `snapshot_path` is required and positional
-- Only basic path and top-level naming checks are performed before restore;
+- Only basic path checks are performed before restore;
   deeper archive correctness remains the user's responsibility
 - No extra automation is performed; if extraction fails, the internal extractor's error output passes through and the command exits non-zero
 - Restoring a snapshot does not update or replace `rootfs/{name}.base.tar.zst`

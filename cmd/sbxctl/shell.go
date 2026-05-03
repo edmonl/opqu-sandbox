@@ -18,10 +18,6 @@ var shellCmd = &cobra.Command{
 			return err
 		}
 
-		if err := sudo(); err != nil {
-			return err
-		}
-
 		conf, err := config.LoadConf(rootDir, name)
 		if err != nil {
 			return err

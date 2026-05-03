@@ -18,6 +18,7 @@ Other commands that are not directly used but may be useful for administration:
 - `networkctl`: Check the status of virtual interfaces.
 - `ip`: Check network bridge and interface management.
 - `sysctl`: Check and configure IP forwarding.
+- `journald`: Read logs with `journalctl --machine opqu-sbx-{name}`.
 
 On Debian, these *optional priority* packages provide some of the commands:
 - `mmdebstrap`: provides `mmdebstrap`.

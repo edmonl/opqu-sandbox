@@ -77,3 +77,32 @@ func RunCmd(cmd string, args ...string) error {
 	execCmd.Stderr = os.Stderr
 	return execCmd.Run()
 }
+
+func ReplaceRootfs(rootDir, name, archivePath string) error {
+	rootfsPath := RootfsPath(rootDir, name)
+	bakPath := rootfsPath + ".bak"
+
+	// Remove any existing backup
+	os.RemoveAll(bakPath)
+
+	// Move existing rootfs to backup if it exists
+	if err := os.Rename(rootfsPath, bakPath); err != nil {
+		return fmt.Errorf("failed to backup rootfs %v: %v", rootfsPath, err)
+	}
+
+	if err := Extract(archivePath, rootfsPath); err != nil {
+		// Restore backup on failure
+		os.RemoveAll(rootfsPath)
+		if renameErr := os.Rename(bakPath, rootfsPath); renameErr != nil {
+			return fmt.Errorf("failed to extract %v: %v; also failed to restore backup %v to %v: %v", archivePath, err, bakPath, rootfsPath, renameErr)
+		}
+		return fmt.Errorf("failed to extract %v: %v", archivePath, err)
+	}
+
+	// Cleanup backup on success
+	if err := os.RemoveAll(bakPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to delete rootfs backup %v: %v\n", bakPath, err)
+	}
+
+	return nil
+}
