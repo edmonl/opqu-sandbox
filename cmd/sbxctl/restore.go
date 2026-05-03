@@ -15,16 +15,16 @@ var restoreCmd = &cobra.Command{
 	Short: "Replace a sandbox rootfs from a snapshot archive",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := sudo(); err != nil {
-			return err
-		}
 		name := args[0]
-		snapshotPath := args[1]
-
 		if err := sandbox.EnsureStopped(name); err != nil {
 			return err
 		}
 
+		if err := sudo(); err != nil {
+			return err
+		}
+
+		snapshotPath := args[1]
 		info, err := os.Stat(snapshotPath)
 		if err != nil {
 			if os.IsNotExist(err) {

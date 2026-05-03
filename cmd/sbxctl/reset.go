@@ -36,7 +36,12 @@ var resetCmd = &cobra.Command{
 
 		tarball := sandbox.BaseTarballPath(rootDir, name)
 		if err := sandbox.Extract(tarball, filepath.Join(rootDir, "rootfs")); err != nil {
-			return fmt.Errorf("failed to extract base tarball: %v", err)
+			// Restore backup on failure
+			os.RemoveAll(rootfsPath)
+			if renameErr := os.Rename(bakPath, rootfsPath); renameErr != nil {
+				return fmt.Errorf("failed to extract base image: %v; also failed to restore backup %v to %v: %v", err, bakPath, rootfsPath, renameErr)
+			}
+			return fmt.Errorf("failed to extract base image: %v", err)
 		}
 
 		// Cleanup backup on success

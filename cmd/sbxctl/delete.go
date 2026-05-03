@@ -27,8 +27,9 @@ var deleteCmd = &cobra.Command{
 			return fmt.Errorf("failed to delete sandbox rootfs: %v", err)
 		}
 
-		if err := os.RemoveAll(sandbox.BaseTarballPath(rootDir, name)); err != nil {
-			return fmt.Errorf("failed to delete base tarball: %v", err)
+		tarball := sandbox.BaseTarballPath(rootDir, name)
+		if err := os.RemoveAll(tarball); err != nil {
+			return fmt.Errorf("failed to delete base image %v: %v", tarball, err)
 		}
 
 		confDir := filepath.Join(rootDir, "conf")

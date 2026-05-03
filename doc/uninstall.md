@@ -4,7 +4,7 @@ Use `sbxctl status` to check running sandboxes. Use `sbxctl stop {name}` to stop
 Then the whole sandbox root directory and the single executable binary may be deleted.
 Remove the export of `OPQU_SBX_ROOT` if you persisted it before.
 
-You may also delete an individual sandbox's `rootfs/{name}` and its base tarball `rootfs/{name}.base.tar.zst` if you do not want to delete the entire root directory.
+You may also delete an individual sandbox's `rootfs/{name}` and its base image `rootfs/{name}.base.tar.zst` if you do not want to delete the entire root directory.
 
 Note that files in the `conf/` directory (like `{name}.conf`, `{name}.packages`, and `{name}.mounts`) are not deleted by `sbxctl delete {name}`, so you can easily recreate the sandbox later. Delete them manually when they are not needed any more.
 

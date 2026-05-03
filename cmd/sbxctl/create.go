@@ -130,7 +130,7 @@ var createCmd = &cobra.Command{
 		}
 
 		if err := sandbox.Compress(sandboxFs, tarball, zstd.SpeedDefault); err != nil {
-			return fmt.Errorf("failed to create base tarball for sandbox: %v", err)
+			return fmt.Errorf("failed to create base image for sandbox: %v", err)
 		}
 
 		return nil
