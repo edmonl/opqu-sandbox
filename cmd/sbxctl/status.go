@@ -261,6 +261,11 @@ func showSandboxStatus(name string) error {
 		fmt.Printf(normalFormat, "NETWORK_ZONE:", conf.NetworkZone)
 		fmt.Printf(normalFormat, "RESOLV_CONF:", conf.ResolvConf)
 		fmt.Printf(normalFormat, "SANDBOX_USER:", fmt.Sprintf("%v (UID %v)", conf.SandboxUser.Username, conf.SandboxUser.Uid))
+		rootPasswordStatus := "(locked)"
+		if conf.RootPassword != "" {
+			rootPasswordStatus = "(configured)"
+		}
+		fmt.Printf(normalFormat, "ROOT_USER_PASSWORD:", rootPasswordStatus)
 		ports := "(none)"
 		if len(conf.Ports) > 0 {
 			ports = strings.Join(conf.Ports, " ")

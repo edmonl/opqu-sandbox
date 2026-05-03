@@ -33,9 +33,6 @@ running sandboxes:
     Prerequisites) are available in the PATH. Print each command followed by
     `OK` or `MISSING`. For `mmdebstrap`/`debootstrap`, it's acceptable if
     only one is present.
-2. **Check Networking**:
-    - **systemd-networkd**: Check if the service is active via `systemctl`.
-    - **IP Forwarding**: Check if `/proc/sys/net/ipv4/ip_forward` is `1`.
 3. **Check SANDBOX_USER**: Verify that the `SANDBOX_USER` (from
     `default` or default) exists on the host. Print the result.
 4. **List Existing Rootfs**: List all directories in the `ROOT_DIR/rootfs/` subdirectory.
