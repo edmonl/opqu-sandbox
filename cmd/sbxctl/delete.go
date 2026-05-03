@@ -1,9 +1,7 @@
 package main
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -13,34 +11,23 @@ import (
 
 var deleteCmd = &cobra.Command{
 	Use:   "delete [name]",
-	Short: "Remove a sandbox, its base tarball, and network interfaces",
+	Short: "Remove a sandbox",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		if err := sandbox.ValidateName(name); err != nil {
+		if err := sandbox.EnsureStopped(name); err != nil {
 			return err
-		}
-
-		running, err := sandbox.IsRunning(name)
-		if err != nil {
-			return err
-		}
-
-		if running {
-			return errors.New("cannot delete a running sandbox")
 		}
 
 		if err := sudo(); err != nil {
 			return err
 		}
 
-		rootfs := filepath.Join(rootDir, "rootfs")
-		if err := os.RemoveAll(filepath.Join(rootfs, name)); err != nil {
+		if err := sandbox.RemoveRootfs(rootDir, name); err != nil {
 			return fmt.Errorf("failed to delete sandbox rootfs: %v", err)
 		}
 
-		tarball := filepath.Join(rootfs, fmt.Sprintf("%v.base.tar.zst", name))
-		if err := os.Remove(tarball); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := os.RemoveAll(sandbox.BaseTarballPath(rootDir, name)); err != nil {
 			return fmt.Errorf("failed to delete base tarball: %v", err)
 		}
 

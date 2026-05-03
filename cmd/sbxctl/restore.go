@@ -11,7 +11,7 @@ import (
 )
 
 var restoreCmd = &cobra.Command{
-	Use:   "restore [name] [snapshot_path]",
+	Use:   "restore [name] [snapshot path]",
 	Short: "Replace a sandbox rootfs from a snapshot archive",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -21,17 +21,8 @@ var restoreCmd = &cobra.Command{
 		name := args[0]
 		snapshotPath := args[1]
 
-		if err := sandbox.ValidateName(name); err != nil {
+		if err := sandbox.EnsureStopped(name); err != nil {
 			return err
-		}
-
-		running, err := sandbox.IsRunning(name)
-		if err != nil {
-			return err
-		}
-
-		if running {
-			return fmt.Errorf("sandbox %v is running; stop it first", name)
 		}
 
 		info, err := os.Stat(snapshotPath)

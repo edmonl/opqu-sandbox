@@ -27,8 +27,6 @@ var createCmd = &cobra.Command{
 
 		rootfs := filepath.Join(rootDir, "rootfs")
 		pkgCache := filepath.Join(rootDir, "pkg-cache")
-		sandboxFs := filepath.Join(rootfs, name)
-		tarball := filepath.Join(rootfs, fmt.Sprintf("%v.base.tar.zst", name))
 		// best effort for the current user
 		os.MkdirAll(rootfs, 0o755)
 		os.MkdirAll(pkgCache, 0o755)
@@ -54,10 +52,12 @@ var createCmd = &cobra.Command{
 			return err
 		}
 
+		sandboxFs := sandbox.RootfsPath(rootDir, name)
 		if _, err := os.Stat(sandboxFs); err == nil {
 			return errors.New("sandbox rootfs already exists")
 		}
 
+		tarball := sandbox.BaseTarballPath(rootDir, name)
 		if _, err := os.Stat(tarball); err == nil {
 			prompt := fmt.Sprintf("Base image %v already exists. Press [Enter] directly to recreate rootfs from the base image, or enter \"overwrite\" to overwrite it with a new rootfs (Ctrl+C to cancel): ", filepath.Base(tarball))
 			input, err := util.Confirm(prompt)

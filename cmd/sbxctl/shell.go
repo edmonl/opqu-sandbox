@@ -13,11 +13,12 @@ var shellCmd = &cobra.Command{
 	Short: "Open a shell or run a command inside a running sandbox",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := sudo(); err != nil {
-			return err
-		}
 		name := args[0]
 		if err := sandbox.ValidateName(name); err != nil {
+			return err
+		}
+
+		if err := sudo(); err != nil {
 			return err
 		}
 
@@ -26,10 +27,10 @@ var shellCmd = &cobra.Command{
 			return err
 		}
 
-		machine := sandbox.MachineName(name)
-		userAtMachine := fmt.Sprintf("%v@%v", conf.SandboxUser.Username, machine)
-
-		execArgs := []string{"shell", userAtMachine}
+		execArgs := []string{
+			"shell",
+			fmt.Sprintf("%v@%v", conf.SandboxUser.Username, sandbox.MachineName(name)),
+		}
 		if len(args) > 1 {
 			execArgs = append(execArgs, args[1:]...)
 		}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -16,6 +17,35 @@ func ValidateName(name string) error {
 		return nil
 	}
 	return fmt.Errorf("sandbox name %v is invalid, must be lowercase alphanumeric and hyphens only", name)
+}
+
+func EnsureStopped(name string) error {
+	if err := ValidateName(name); err != nil {
+		return err
+	}
+
+	running, err := IsRunning(name)
+	if err != nil {
+		return err
+	}
+
+	if running {
+		return errors.New("cannot operate a running sandbox")
+	}
+
+	return nil
+}
+
+func RootfsPath(rootDir, name string) string {
+	return filepath.Join(rootDir, "rootfs", name)
+}
+
+func BaseTarballPath(rootDir, name string) string {
+	return filepath.Join(rootDir, "rootfs", fmt.Sprintf("%v.base.tar.zst", name))
+}
+
+func RemoveRootfs(rootDir, name string) error {
+	return os.RemoveAll(RootfsPath(rootDir, name))
 }
 
 func MachineName(name string) string {
