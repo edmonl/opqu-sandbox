@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/edmonl/opqu-sandbox/internal/sandbox"
 	"github.com/spf13/cobra"
@@ -35,7 +34,7 @@ var resetCmd = &cobra.Command{
 		}
 
 		tarball := sandbox.BaseTarballPath(rootDir, name)
-		if err := sandbox.Extract(tarball, filepath.Join(rootDir, "rootfs")); err != nil {
+		if err := sandbox.Extract(tarball, rootfsPath); err != nil {
 			// Restore backup on failure
 			os.RemoveAll(rootfsPath)
 			if renameErr := os.Rename(bakPath, rootfsPath); renameErr != nil {

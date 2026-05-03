@@ -32,7 +32,7 @@ func TestArchive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListPaths failed: %v", err)
 	}
-	expectedPaths := []string{"src", "src/file1.txt", "src/link1", "src/subdir", "src/subdir/file2.txt"}
+	expectedPaths := []string{"file1.txt", "link1", "subdir", "subdir/file2.txt"}
 	// ListPaths output depends on filepath.Walk order, but usually sorted or consistent on same FS
 	// Let's just check if all expected paths are present
 	pathMap := make(map[string]bool)
@@ -52,26 +52,31 @@ func TestArchive(t *testing.T) {
 	}
 
 	// 5. Verify extracted content
-	// Note: Compress archives the *directory* itself (srcDir), so it extracts to destDir/src/...
-	extractedSrc := filepath.Join(destDir, "src")
+	// Note: Compress archives the *contents* of srcDir, so it extracts directly to destDir/...
 
-	content1, _ := os.ReadFile(filepath.Join(extractedSrc, "file1.txt"))
-	if string(content1) != "hello" {
+	content1, err := os.ReadFile(filepath.Join(destDir, "file1.txt"))
+	if err != nil {
+		t.Errorf("failed to read file1.txt: %v", err)
+	} else if string(content1) != "hello" {
 		t.Errorf("file1.txt content mismatch: got %q, want %q", string(content1), "hello")
 	}
 
-	content2, _ := os.ReadFile(filepath.Join(extractedSrc, "subdir/file2.txt"))
-	if string(content2) != "world" {
+	content2, err := os.ReadFile(filepath.Join(destDir, "subdir/file2.txt"))
+	if err != nil {
+		t.Errorf("failed to read subdir/file2.txt: %v", err)
+	} else if string(content2) != "world" {
 		t.Errorf("file2.txt content mismatch: got %q, want %q", string(content2), "world")
 	}
 
-	linkTarget, _ := os.Readlink(filepath.Join(extractedSrc, "link1"))
-	if linkTarget != "file1.txt" {
+	linkTarget, err := os.Readlink(filepath.Join(destDir, "link1"))
+	if err != nil {
+		t.Errorf("failed to read link1: %v", err)
+	} else if linkTarget != "file1.txt" {
 		t.Errorf("link1 target mismatch: got %q, want %q", linkTarget, "file1.txt")
 	}
 
 	// Verify directory exists
-	if info, err := os.Stat(filepath.Join(extractedSrc, "subdir")); err != nil || !info.IsDir() {
+	if info, err := os.Stat(filepath.Join(destDir, "subdir")); err != nil || !info.IsDir() {
 		t.Errorf("subdir missing or not a directory")
 	}
 }
@@ -99,19 +104,19 @@ func TestArchiveHardLink(t *testing.T) {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
-	extractedSrc := filepath.Join(destDir, "src")
-	fi1, _ := os.Stat(filepath.Join(extractedSrc, "original"))
-	fi2, _ := os.Stat(filepath.Join(extractedSrc, "hardlink"))
+	fi1, err := os.Stat(filepath.Join(destDir, "original"))
+	if err != nil {
+		t.Fatalf("original missing: %v", err)
+	}
+	fi2, err := os.Stat(filepath.Join(destDir, "hardlink"))
+	if err != nil {
+		t.Fatalf("hardlink missing: %v", err)
+	}
 
 	// Verify they are the same file (same inode)
-	// This might not work on all filesystems or if the tar/extract logic doesn't preserve hard links
-	// The current Compress logic DOES handle hard links.
 	if !reflect.DeepEqual(fi1.Sys(), fi2.Sys()) {
-		// On some systems/Go versions, fi1.Sys() might contain more than just (dev, ino)
-		// but they should be equal if they are hard links.
-		// Fallback check if Sys() is not enough:
-		content1, _ := os.ReadFile(filepath.Join(extractedSrc, "original"))
-		content2, _ := os.ReadFile(filepath.Join(extractedSrc, "hardlink"))
+		content1, _ := os.ReadFile(filepath.Join(destDir, "original"))
+		content2, _ := os.ReadFile(filepath.Join(destDir, "hardlink"))
 		if string(content1) != string(content2) {
 			t.Errorf("Hard link content mismatch")
 		}

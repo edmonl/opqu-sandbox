@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,16 +27,14 @@ var restoreCmd = &cobra.Command{
 		}
 
 		snapshotPath := args[1]
-		info, err := os.Stat(snapshotPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return fmt.Errorf("snapshot %v does not exist", snapshotPath)
+		if info, err := os.Stat(snapshotPath); err == nil {
+			if !info.Mode().IsRegular() {
+				return errors.New("snapshot is not a regular file")
 			}
-			return fmt.Errorf("failed to stat snapshot %v: %v", snapshotPath, err)
-		}
-
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("snapshot %v is not a regular file", snapshotPath)
+		} else if errors.Is(err, fs.ErrNotExist) {
+			return errors.New("snapshot does not exist")
+		} else {
+			return fmt.Errorf("failed to access snapshot: %v", err)
 		}
 
 		// Check snapshot contents

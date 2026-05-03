@@ -41,7 +41,6 @@ func ListPaths(srcFile string) ([]string, error) {
 }
 
 // Compress creates a zstd-compressed tarball of srcDir.
-// The srcDir itself will be the top-level directory in the archive.
 func Compress(srcDir, destFile string, level zstd.EncoderLevel) error {
 	f, err := os.Create(destFile)
 	if err != nil {
@@ -58,14 +57,15 @@ func Compress(srcDir, destFile string, level zstd.EncoderLevel) error {
 	tw := tar.NewWriter(zw)
 	defer tw.Close()
 
-	parentDir := filepath.Dir(srcDir)
-
-	// Map to track hard links: (dev, ino) -> first path in archive
 	seenFiles := map[struct{ dev, ino uint64 }]string{}
 
 	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+
+		if path == srcDir {
+			return nil
 		}
 
 		var realPath string
@@ -82,7 +82,7 @@ func Compress(srcDir, destFile string, level zstd.EncoderLevel) error {
 			return err
 		}
 
-		relPath, err := filepath.Rel(parentDir, path)
+		relPath, err := filepath.Rel(srcDir, path)
 		if err != nil {
 			return err
 		}

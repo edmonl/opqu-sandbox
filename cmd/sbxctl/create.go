@@ -65,7 +65,7 @@ var createCmd = &cobra.Command{
 				return err
 			}
 			if input == "" {
-				if err := sandbox.Extract(tarball, rootfs); err != nil {
+				if err := sandbox.Extract(tarball, sandboxFs); err != nil {
 					return fmt.Errorf("failed to extract from base image: %v", err)
 				}
 				fmt.Printf("Sandbox %v recreated from existing base image.\n", name)
