@@ -1,6 +1,6 @@
 # System Requirements
 
-`sbx status` may be used to check the requirements.
+You can use `sbx status` to verify the system requirements.
 
 ## Host Commands
 
@@ -18,7 +18,7 @@ Other commands that are not directly used but may be useful for administration:
 - `networkctl`: Check the status of virtual interfaces.
 - `ip`: Check network bridge and interface management.
 - `sysctl`: Check and configure IP forwarding.
-- `journald`: Read logs with `journalctl --machine opqu-sbx-{name}`.
+- `journald`: Read logs using `journalctl --machine opqu-sbx-{name}`.
 
 On Debian, these *optional priority* packages provide some of the commands:
 - `mmdebstrap`: provides `mmdebstrap`.
@@ -26,7 +26,7 @@ On Debian, these *optional priority* packages provide some of the commands:
 - `systemd-container`: provides `systemd-nspawn` and `machinectl`.
 - `sudo`: provides `sudo`.
 
-Standard Debian installation should already have these packages and commands available:
+A standard Debian installation should already have these packages and commands available:
 - `systemd` (important): provides `systemd-run`, `systemctl`, `networkctl`, and `systemd-networkd`.
 - `iproute2` (important): provides `ip`.
 - `procps` (important): provides `sysctl`.
@@ -34,7 +34,7 @@ Standard Debian installation should already have these packages and commands ava
 
 ### Networking Requirements
 
-For sandboxes to have outbound internet access, the host system must be configured to handle virtual routing and DHCP, as well as firewall traversal.
+For sandboxes to have outbound internet access, the host system must be configured to handle virtual routing, DHCP, and firewall traversal.
 
 #### Network Zones and Bridges
 
@@ -55,24 +55,24 @@ The virtual bridges (prefixed with `vz-`) require `systemd-networkd` on the host
 **Configuration Requirement:**
 For the bridges to be managed automatically, a `systemd-networkd` configuration file (e.g., `/usr/lib/systemd/network/80-container-vz.network` or similar) must exist on the host to match `vz-*` interfaces.
 - On Debian, this file is provided automatically by `systemd`.
-- You can verify its presence by looking for a file containing `[Match] Name=vz-*` in `/usr/lib/systemd/network/` (or check the man page of `systemd.network` for other locations).
+- You can verify its presence by looking for a file containing `[Match] Name=vz-*` in `/usr/lib/systemd/network/` (or check the man page for `systemd.network` for other locations).
 
 **Verification:**
 You can use the `networkctl` command to verify the status of the virtual interfaces:
 - `networkctl list`: Lists all interfaces and their setup status (should show `managed` for `vz-*` interfaces when sandboxes are running).
 - `networkctl status vz-*`: Shows detailed information, including assigned IP addresses and DHCP server status.
 
-You can check if the service is active with `systemctl status systemd-networkd`, or auto start it using `systemctl enable --now systemd-networkd`.
+You can check if the service is active with `systemctl status systemd-networkd`, or enable and start it using `systemctl enable --now systemd-networkd`.
 
 #### IP Forwarding
 For the host to act as a gateway for the sandboxes, the Linux kernel must allow packet forwarding between interfaces.
-To check it, `cat /proc/sys/net/ipv4/ip_forward` must return `1`.
-See man pages about `sysctl.d`, `sysctl.conf`, or `sysctl` if you need to change it or persist it by `net.ipv4.ip_forward=1`.
+To check this, `cat /proc/sys/net/ipv4/ip_forward` must return `1`.
+See the man pages for `sysctl.d`, `sysctl.conf`, or `sysctl` if you need to change this setting or persist it using `net.ipv4.ip_forward=1`.
 
 #### Firewall Configuration
 
-`sbx` does not touch firewalls on the host.
-Regardless of which firewall you use, you must ensure it does not block the virtual traffic. Check for the following necessary rules (in natural language):
+`sbx` does not modify firewalls on the host.
+Regardless of which firewall you use, you must ensure it does not block virtual traffic. Verify the following necessary rules are in place:
 1. **Input**: Allow traffic from the virtual interfaces (`vz-*` and `vb-*`) to the host. This is required for the sandbox to request a DHCP IP address and reach host DNS services.
 2. **Routing**: Allow traffic to be forwarded/routed from the virtual interfaces out to your physical internet interface, and vice versa for return traffic.
 3. **Masquerading (NAT)**: The firewall must perform "Masquerading" so that traffic leaving the sandbox appears to come from the host's IP address.
@@ -85,5 +85,5 @@ This is because the system uses real host UIDs inside the sandbox to ensure that
 ### Privileges
 
 Most `sbx` commands require `sudo` (root) privileges on the host.
-This is necessary because `systemd-nspawn`, `mmdebstrap`, and `debootstrap` are run in their real-root modes to manage system-level resources (like network bridges and root filesystems) directly.
-Confirmation will be asked for before `sudo` is invoked.
+This is necessary because `systemd-nspawn`, `mmdebstrap`, and `debootstrap` run in their real-root modes to manage system-level resources (like network bridges and root filesystems) directly.
+Confirmation will be requested before `sudo` is invoked.
