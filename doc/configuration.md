@@ -1,18 +1,40 @@
 # Configuration
 
-## Root Directory
+## Sandbox Directory
 
-All sandbox paths for `sbxctl` are resolved relative to a sandbox [root directory](root-directory-structure.md).
+`sbx` manages files in a sandbox directory that can be configured in the following order of precedence:
 
-The root directory is determined in the following order of precedence:
-
-1. **CLI override**: `sbxctl --root /path/to/sandboxes ...`
-2. **Environment override**: `OPQU_SBX_ROOT=/path/to/sandboxes`
+1. **CLI override**: `sbx --sbx-directory /path/to/sandboxes ...`
+2. **Environment override**: `OPQU_SBX_DIRECTORY=/path/to/sandboxes`
 3. **Default**: The current working directory.
+
+The directory layout looks like this:
+
+```
+{sandbox directory}/
+├── pkg-cache/                                   # shared .deb cache (mmdebstrap only)
+├── snapshots/                                   # sandbox snapshots
+│   └── {name}/                                  # per-sandbox
+│       ├── base.{timestamp}.tar.zst             # base snapshot
+│       └── {snapshot name}.{timestamp}.tar.zst  # other snapshots
+└── conf/                                        # user-managed configuration (optional)
+    ├── default                                  # global defaults
+    ├── {name}.conf                              # per-sandbox: ports
+    ├── {name}.packages                          # per-sandbox extra packages
+    └── {name}.mounts                            # per-sandbox bind mounts
+```
+
+`conf/` directory is created and managed by the user when custom settings are needed (or not needed anymore) over the defaults.
+Other files and directories are managed by `sbx`, though they may manually be managed/pruned (e.g. `rm pkg-cache/*.deb`) without breaking `sbx`.
+
+### Constraints
+
+- **Package Cache**: `sbx` prefers `mmdebstrap`. If `mmdebstrap` is not available, it falls back to `debootstrap`. The shared `pkg-cache/` is only supported when using `mmdebstrap`. When falling back to `debootstrap`, the cache is ignored and packages are downloaded directly into the sandbox.
+- **Whitespace Constraint**: Because `sbx create` uses `mmdebstrap` `sync-in`/`sync-out` special hooks for `pkg-cache/`, the directory path *must not contain whitespace*. This constraint is enforced even if `debootstrap` is available, to ensure portability and consistent behavior.
 
 ## Configuration Files
 
-All configuration files are optional and located in the `conf/` directory relative to the root directory. If a file does not exist, the system falls back to default values.
+All configuration files are optional and located in the `conf/` directory.
 
 ### `conf/default`
 
@@ -21,11 +43,13 @@ This file in dotenv format defines default settings for *creating* sandboxes wit
 ```bash
 DISTRO=stable
 MIRROR=http://deb.debian.org/debian
-VARIANT=standard            # standard = full usable base; required = minimal
-SANDBOX_USER=               # defaults to the current user at runtime if left empty
-RESOLV_CONF=auto            # for `--resolv-conf` of `systemd-nspawn`
-ROOT_USER_PASSWORD=         # if empty, root password is disabled (locked)
-NETWORK_ZONE=opqu-sbx       # logical network group; max 12 characters
+VARIANT=standard             # standard = full usable base; required = minimal
+IMAGE_PATH=/var/lib/machines # search path for machine images, used by `machinectl`
+SANDBOX_USER=                # defaults to the current user at runtime if left empty
+RESOLV_CONF=auto             # for `--resolv-conf` of `systemd-nspawn`
+ROOT_USER_PASSWORD=          # if empty, root password is disabled (locked)
+NETWORK_ZONE=opqu-sbx        # logical network group; max 12 characters
+MAX_SNAPSHOTS=10             # max numbers of snapshots to keep, excluding the base snapshot
 ```
 
 An empty value means using the default. See [User Model](user-model.md) for more about `ROOT_USER_PASSWORD`.
@@ -85,8 +109,8 @@ To change mounts, you may edit this file, stop and restart the sandbox.
 Each mount must have either a non-empty host path or a non-empty sandbox path.
 
 About the host path:
-- Relative path is resolved with the sandbox root directory.
-- Empty path creates a scratch directory in `/var/tmp` on the host which is removed when the sandbox is stopped. This may be useful to inspect sandbox files when it is running.
+- Relative path is resolved in the sandbox directory.
+- `systemd-nspawn` treats an empty host path as a scratch folder created in `/var/tmp` on the host and removed when the sandbox is stopped. This may be useful to inspect sandbox files when it is running.
 - `~` at the beginning resolves to the home directory of the sandbox user.
 
 About the sandbox path:

@@ -1,17 +1,17 @@
 # System Requirements
 
-`sbxctl status` may be used to check the requirements.
+`sbx status` may be used to check the requirements.
 
 ## Host Commands
 
-The following host commands are used by `sbxctl`:
+The following host commands are used by `sbx`:
 - `mmdebstrap`: Used to provision the rootfs.
 - `debootstrap`: Used as a fallback if `mmdebstrap` is not available.
 - `systemd-nspawn`: The core container engine used to run the sandboxes.
 - `systemd-run`: Used to daemonize sandbox processes as `systemd` services.
 - `machinectl`: Used to manage container lifecycle and provide shell access.
 - `systemctl`: Used to manage `systemd` units.
-- `sudo`: Used when privileges are required and `sbxctl` is not started with `sudo`.
+- `sudo`: Used when privileges are required and `sbx` is not started with `sudo`.
 - `su`: Used as a fallback when `sudo` is not available.
 
 Other commands that are not directly used but may be useful for administration:
@@ -71,7 +71,7 @@ See man pages about `sysctl.d`, `sysctl.conf`, or `sysctl` if you need to change
 
 #### Firewall Configuration
 
-`sbxctl` does not touch firewalls on the host.
+`sbx` does not touch firewalls on the host.
 Regardless of which firewall you use, you must ensure it does not block the virtual traffic. Check for the following necessary rules (in natural language):
 1. **Input**: Allow traffic from the virtual interfaces (`vz-*` and `vb-*`) to the host. This is required for the sandbox to request a DHCP IP address and reach host DNS services.
 2. **Routing**: Allow traffic to be forwarded/routed from the virtual interfaces out to your physical internet interface, and vice versa for return traffic.
@@ -79,11 +79,11 @@ Regardless of which firewall you use, you must ensure it does not block the virt
 
 ### User Requirement
 
-`SANDBOX_USER` (see [Configuration](configuration.md#configuration-files)) must already exist as a real user on the host before `sbxctl create` is run.
+`SANDBOX_USER` (see [Configuration](configuration.md#configuration-files)) must already exist as a real user on the host before `sbx create` is run.
 This is because the system uses real host UIDs inside the sandbox to ensure that bind-mounted files have consistent ownership on both sides without requiring user namespaces or UID remapping.
 
 ### Privileges
 
-Most `sbxctl` commands require `sudo` (root) privileges on the host.
+Most `sbx` commands require `sudo` (root) privileges on the host.
 This is necessary because `systemd-nspawn`, `mmdebstrap`, and `debootstrap` are run in their real-root modes to manage system-level resources (like network bridges and root filesystems) directly.
 Confirmation will be asked for before `sudo` is invoked.
