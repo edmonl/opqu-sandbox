@@ -24,17 +24,17 @@ var startCmd = &cobra.Command{
 			return err
 		}
 
-		sandboxFs := filepath.Join(rootDir, "rootfs", name)
+		sandboxFs := filepath.Join(sbxDir, "rootfs", name)
 		if _, err := os.Stat(sandboxFs); err != nil {
 			return fmt.Errorf("cannot access sandbox rootfs: %w", err)
 		}
 
-		conf, err := config.LoadConf(rootDir, name)
+		conf, err := config.LoadConf(sbxDir, name)
 		if err != nil {
 			return err
 		}
 
-		mounts, err := config.LoadMounts(rootDir, name, conf.SandboxUser)
+		mounts, err := config.LoadMounts(sbxDir, name, conf.SandboxUser)
 		if err != nil {
 			return err
 		}

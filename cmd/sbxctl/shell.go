@@ -18,7 +18,7 @@ var shellCmd = &cobra.Command{
 			return err
 		}
 
-		conf, err := config.LoadConf(rootDir, name)
+		conf, err := config.LoadConf(sbxDir, name)
 		if err != nil {
 			return err
 		}

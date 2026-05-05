@@ -55,7 +55,7 @@ var snapshotCmd = &cobra.Command{
 			}
 		}
 
-		if err := sandbox.Compress(sandbox.RootfsPath(rootDir, name), outputPath, zstd.SpeedBestCompression); err != nil {
+		if err := sandbox.Compress(sandbox.RootfsPath(sbxDir, name), outputPath, zstd.SpeedBestCompression); err != nil {
 			return fmt.Errorf("failed to create snapshot: %v", err)
 		}
 

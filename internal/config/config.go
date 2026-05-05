@@ -1,4 +1,4 @@
-// Package config provides functions to load configuration from the sandbox root directory.
+// Package config provides functions to load configuration from the sandbox directory.
 package config
 
 import (
@@ -30,6 +30,7 @@ type Config struct {
 	NetworkZone  string
 	ResolvConf   string
 	RootPassword string
+	ImagePath    string
 }
 
 var zoneRegex = regexp.MustCompile(`^[a-z0-9-]+$`)
@@ -43,16 +44,16 @@ func loadConfFile(path string) (map[string]string, error) {
 	return conf, nil
 }
 
-func LoadConf(rootDir, name string) (*Config, error) {
+func LoadConf(sbxDir, name string) (*Config, error) {
 	// Load default conf
-	rawConf, err := loadConfFile(filepath.Join(rootDir, "conf", "default"))
+	rawConf, err := loadConfFile(filepath.Join(sbxDir, "conf", "default"))
 	if err != nil {
 		return nil, err
 	}
 
 	// Load <name>.conf
 	if name != "" {
-		sandboxConf, err := loadConfFile(filepath.Join(rootDir, "conf", name+".conf"))
+		sandboxConf, err := loadConfFile(filepath.Join(sbxDir, "conf", name+".conf"))
 		if err != nil {
 			return nil, err
 		}
@@ -64,11 +65,12 @@ func LoadConf(rootDir, name string) (*Config, error) {
 	}
 
 	conf := &Config{
-		Distro:      "stable",
-		Mirror:      "http://deb.debian.org/debian",
-		Variant:     "standard",
-		NetworkZone: "opqu-sbx",
-		ResolvConf:  "auto",
+		Distro:       "stable",
+		Mirror:       "http://deb.debian.org/debian",
+		Variant:      "standard",
+		NetworkZone:  "opqu-sbx",
+		ResolvConf:   "auto",
+		ImagePath:    "/var/lib/machines",
 	}
 
 	if v := rawConf["DISTRO"]; v != "" {
@@ -82,10 +84,10 @@ func LoadConf(rootDir, name string) (*Config, error) {
 	}
 	if v := rawConf["NETWORK_ZONE"]; v != "" {
 		if !zoneRegex.MatchString(v) {
-			return nil, errors.New("failed to load configuration: invalid network zone, must be lowercase alphanumeric and hyphens only")
+			return nil, errors.New("failed to load configuration: NETWORK_ZONE must be lowercase alphanumeric and hyphens only")
 		}
 		if len(v) > 12 {
-			return nil, errors.New("failed to load configuration: network zone is limited to 12 characters")
+			return nil, errors.New("failed to load configuration: NETWORK_ZONE is limited to 12 characters")
 		}
 		conf.NetworkZone = v
 	}
@@ -94,6 +96,12 @@ func LoadConf(rootDir, name string) (*Config, error) {
 	}
 	if v := rawConf["ROOT_USER_PASSWORD"]; v != "" {
 		conf.RootPassword = v
+	}
+	if v := rawConf["IMAGE_PATH"]; v != "" {
+		if !filepath.IsAbs(v) {
+			return nil, errors.New("failed to load configuration: IMAGE_PATH must be an absolute path")
+		}
+		conf.ImagePath = v
 	}
 
 	if v := rawConf["PORTS"]; v != "" {
@@ -178,8 +186,8 @@ func loadLines(path string) ([]string, error) {
 
 var packageRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9+.-]+$`)
 
-func LoadPackages(rootDir, name string) ([]string, error) {
-	packagesPath := filepath.Join(rootDir, "conf", name+".packages")
+func LoadPackages(sbxDir, name string) ([]string, error) {
+	packagesPath := filepath.Join(sbxDir, "conf", name+".packages")
 	packages, err := loadLines(packagesPath)
 	if err != nil {
 		return nil, err
@@ -196,8 +204,8 @@ func LoadPackages(rootDir, name string) ([]string, error) {
 
 var mountRegex = regexp.MustCompile(`^([^:]*)(?::([^:]*))?(:ro)?$`)
 
-func LoadMounts(rootDir, name string, u *user.User) ([]*Mount, error) {
-	mountsPath := filepath.Join(rootDir, "conf", name+".mounts")
+func LoadMounts(sbxDir, name string, u *user.User) ([]*Mount, error) {
+	mountsPath := filepath.Join(sbxDir, "conf", name+".mounts")
 	mountLines, err := loadLines(mountsPath)
 	if err != nil {
 		return nil, err
@@ -230,7 +238,7 @@ func LoadMounts(rootDir, name string, u *user.User) ([]*Mount, error) {
 
 				hostPath = filepath.Join(u.HomeDir, hostPath[min(2, len(hostPath)):])
 			} else if !filepath.IsAbs(hostPath) {
-				hostPath = filepath.Join(rootDir, hostPath)
+				hostPath = filepath.Join(sbxDir, hostPath)
 			}
 		}
 

@@ -19,7 +19,7 @@ var resetCmd = &cobra.Command{
 			return err
 		}
 
-		return sandbox.ReplaceRootfs(rootDir, name, sandbox.BaseTarballPath(rootDir, name))
+		return sandbox.ReplaceRootfs(sbxDir, name, sandbox.BaseTarballPath(sbxDir, name))
 	},
 }
 

@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var rootDir string
+var sbxDir string
 var whitespacePattern = regexp.MustCompile(`\s`)
 
 var rootCmd = &cobra.Command{
@@ -23,17 +23,20 @@ var rootCmd = &cobra.Command{
 			return nil
 		}
 
-		if abs, err := filepath.Abs(rootDir); err == nil {
-			if whitespacePattern.MatchString(rootDir) {
-				return errors.New("sandbox root directory path cannot contain whitespace")
-			}
-			rootDir = abs
-			// Create the root directory with the current user.
-			// Ignore the error as the directory may be created later with root user.
-			os.MkdirAll(rootDir, 0755)
+		if abs, err := filepath.Abs(sbxDir); err != nil {
+			return fmt.Errorf("failed to resolve absolute path for %v: %w", sbxDir, err)
 		} else {
-			return fmt.Errorf("failed to resolve absolute path for root: %w", err)
+			sbxDir = abs
 		}
+
+		if whitespacePattern.MatchString(sbxDir) {
+			return fmt.Errorf("sandbox directory path %v cannot contain whitespace", sbxDir)
+		}
+
+		if err := os.MkdirAll(sbxDir, 0755); err != nil {
+			return fmt.Errorf("failed to create sandbox directory %v: %w", sbxDir, err)
+		}
+
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -42,13 +45,13 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	defaultRoot := os.Getenv("OPQU_SBX_ROOT")
+	defaultRoot := os.Getenv("OPQU_SBX_DIRECTORY")
 	if defaultRoot == "" {
 		defaultRoot = "."
 	}
 
-	rootCmd.PersistentFlags().StringVar(
-		&rootDir, "root", defaultRoot,
-		"sandbox root directory overriding env OPQU_SBX_ROOT",
+	rootCmd.PersistentFlags().StringVarP(
+		&sbxDir, "sbx-dir", "d", defaultRoot,
+		"sandbox directory overriding env OPQU_SBX_DIRECTORY",
 	)
 }

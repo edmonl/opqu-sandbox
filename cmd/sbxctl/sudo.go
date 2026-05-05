@@ -45,9 +45,9 @@ func sudo() error {
 	// Prepare arguments for escalation, ensuring the root directory is preserved.
 	// We append the absolute rootDir to the end of the arguments. Since the
 	// flag library follows the "last one wins" rule, this will correctly
-	// override any previous --root flags or environment variable defaults
+	// override any previous --sbx-dir flags or environment variable defaults
 	// in the escalated process.
-	escalatedArgs := append(os.Args[1:], "--root", rootDir)
+	escalatedArgs := append(os.Args[1:], "--sbx-dir", sbxDir)
 
 	var cmd *exec.Cmd
 	if escalationCmd == "sudo" {

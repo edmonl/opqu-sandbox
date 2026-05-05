@@ -20,7 +20,7 @@ var restoreCmd = &cobra.Command{
 		}
 
 		snapshotPath := args[1]
-		return sandbox.ReplaceRootfs(rootDir, name, snapshotPath)
+		return sandbox.ReplaceRootfs(sbxDir, name, snapshotPath)
 	},
 }
 

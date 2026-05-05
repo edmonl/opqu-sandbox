@@ -116,7 +116,7 @@ func showGlobalStatus() error {
 	}
 
 	fmt.Println("\nExisting Rootfs:")
-	rootfsDir := filepath.Join(rootDir, "rootfs")
+	rootfsDir := filepath.Join(sbxDir, "rootfs")
 	if entries, err := os.ReadDir(rootfsDir); err == nil {
 		found := false
 		for _, entry := range entries {
@@ -137,7 +137,7 @@ func showGlobalStatus() error {
 	}
 
 	fmt.Println()
-	if conf, err := config.LoadConf(rootDir, ""); err == nil {
+	if conf, err := config.LoadConf(sbxDir, ""); err == nil {
 		u := conf.SandboxUser
 		format = normalFormat
 		status = fmt.Sprintf("%v (UID %v) ok", u.Username, u.Uid)
@@ -188,7 +188,7 @@ func showSandboxStatus(name string) error {
 
 	fmt.Printf(normalFormat, "Machine Name:", sandbox.MachineName(name))
 
-	rootfs := filepath.Join(rootDir, "rootfs")
+	rootfs := filepath.Join(sbxDir, "rootfs")
 
 	var format string
 	var status any
@@ -240,7 +240,7 @@ func showSandboxStatus(name string) error {
 	fmt.Printf(format, "Running:", status)
 
 	fmt.Println("\nConfiguration Files:")
-	confDir := filepath.Join(rootDir, "conf")
+	confDir := filepath.Join(sbxDir, "conf")
 	configs := []string{name + ".conf", name + ".packages", name + ".mounts"}
 	for _, c := range configs {
 		path := filepath.Join(confDir, c)
@@ -253,7 +253,7 @@ func showSandboxStatus(name string) error {
 	}
 
 	fmt.Println("\nConfiguration:")
-	conf, confErr := config.LoadConf(rootDir, name)
+	conf, confErr := config.LoadConf(sbxDir, name)
 	if confErr == nil {
 		fmt.Printf(normalFormat, "DISTRO:", conf.Distro)
 		fmt.Printf(normalFormat, "MIRROR:", conf.Mirror)
@@ -277,7 +277,7 @@ func showSandboxStatus(name string) error {
 	}
 
 	fmt.Println("\nPackages:")
-	if packages, err := config.LoadPackages(rootDir, name); err == nil {
+	if packages, err := config.LoadPackages(sbxDir, name); err == nil {
 		if len(packages) == 0 {
 			fmt.Println("(none)")
 		} else {
@@ -295,7 +295,7 @@ func showSandboxStatus(name string) error {
 	if conf == nil || conf.SandboxUser == nil {
 		fmt.Println("failed to load mounts: no successfully loaded configuration")
 		hasError = true
-	} else if mounts, err := config.LoadMounts(rootDir, name, conf.SandboxUser); err == nil {
+	} else if mounts, err := config.LoadMounts(sbxDir, name, conf.SandboxUser); err == nil {
 		if len(mounts) == 0 {
 			fmt.Println("(none)")
 		} else {

@@ -25,39 +25,40 @@ var createCmd = &cobra.Command{
 			return err
 		}
 
-		rootfs := filepath.Join(rootDir, "rootfs")
-		pkgCache := filepath.Join(rootDir, "pkg-cache")
+		conf, err := config.LoadConf(sbxDir, name)
+		if err != nil {
+			return err
+		}
+
+		imagePath := filepath.Join(sbxDir, name)
+		pkgCache := filepath.Join(sbxDir, "pkg-cache")
 		// best effort for the current user
-		os.MkdirAll(rootfs, 0o755)
+		os.MkdirAll(imagePath, 0o755)
 		os.MkdirAll(pkgCache, 0o755)
 
 		if err := sudo(); err != nil {
 			return err
 		}
 
-		if err := os.MkdirAll(rootfs, 0o755); err != nil {
+		if err := os.MkdirAll(imagePath, 0o755); err != nil {
 			return fmt.Errorf("failed to create rootfs directory: %v", err)
 		}
 		if err := os.MkdirAll(pkgCache, 0o755); err != nil {
 			return fmt.Errorf("failed to create pkg-cache directory: %v", err)
 		}
 
-		conf, err := config.LoadConf(rootDir, name)
+
+		packages, err := config.LoadPackages(sbxDir, name)
 		if err != nil {
 			return err
 		}
 
-		packages, err := config.LoadPackages(rootDir, name)
-		if err != nil {
-			return err
-		}
-
-		sandboxFs := sandbox.RootfsPath(rootDir, name)
+		sandboxFs := sandbox.RootfsPath(sbxDir, name)
 		if _, err := os.Stat(sandboxFs); err == nil {
 			return errors.New("sandbox rootfs already exists")
 		}
 
-		tarball := sandbox.BaseTarballPath(rootDir, name)
+		tarball := sandbox.BaseTarballPath(sbxDir, name)
 		if _, err := os.Stat(tarball); err == nil {
 			prompt := fmt.Sprintf("Base image %v already exists. Press [Enter] directly to recreate rootfs from the base image, or enter \"overwrite\" to overwrite it with a new rootfs (Ctrl+C to cancel): ", filepath.Base(tarball))
 			input, err := util.Confirm(prompt)

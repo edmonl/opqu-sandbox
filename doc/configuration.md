@@ -41,15 +41,14 @@ All configuration files are optional and located in the `conf/` directory.
 This file in dotenv format defines default settings for *creating* sandboxes with the following default values:
 
 ```bash
+IMAGE_PATH=/var/lib/machines # search path for machine images, used by `machinectl`
 DISTRO=stable
 MIRROR=http://deb.debian.org/debian
 VARIANT=standard             # standard = full usable base; required = minimal
-IMAGE_PATH=/var/lib/machines # search path for machine images, used by `machinectl`
 SANDBOX_USER=                # defaults to the current user at runtime if left empty
 RESOLV_CONF=auto             # for `--resolv-conf` of `systemd-nspawn`
 ROOT_USER_PASSWORD=          # if empty, root password is disabled (locked)
 NETWORK_ZONE=opqu-sbx        # logical network group; max 12 characters
-MAX_SNAPSHOTS=10             # max numbers of snapshots to keep, excluding the base snapshot
 ```
 
 An empty value indicates that the default should be used. See [User Model](user-model.md) for more about `ROOT_USER_PASSWORD`.
@@ -66,7 +65,7 @@ Sandbox names are validated as follows:
 - Must not be empty.
 - Allowed characters: lowercase alphanumeric and hyphens.
 
-Each `{name}.conf` file provides extra runtime configuration in dotenv format for the named sandbox, as well as optionally overriding the default configuration in `conf/default`.
+Each `{name}.conf` file provides extra runtime configuration in dotenv format for the named sandbox. It can also override the configuration in `conf/default` except for `IMAGE_PATH`.
 
 ```bash
 # Per-sandbox overrides (optional)

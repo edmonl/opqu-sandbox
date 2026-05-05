@@ -2,7 +2,7 @@
 
 Use `sbx status` to check sandboxes. Use `sbx stop {name}` to stop running sandboxes. Use `sbx delete {name}` to delete sandboxes.
 Afterward, the entire sandbox directory and the single executable binary may be deleted.
-Remove the export of `OPQU_SBX_ROOT` if you persisted it previously.
+Remove the export of `OPQU_SBX_DIRECTORY` if you persisted it previously.
 
 Alternatively, you may delete the entire sandbox directory and the executable binary directly, then use `machinectl` to manage the running containers, their images, and relevant systemd units. There may also be `.nspawn` files left in `/var/lib/machines`.
 

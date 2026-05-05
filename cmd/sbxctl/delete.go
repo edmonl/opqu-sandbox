@@ -23,16 +23,16 @@ var deleteCmd = &cobra.Command{
 			return err
 		}
 
-		if err := sandbox.RemoveRootfs(rootDir, name); err != nil {
+		if err := sandbox.RemoveRootfs(sbxDir, name); err != nil {
 			return fmt.Errorf("failed to delete sandbox rootfs: %v", err)
 		}
 
-		tarball := sandbox.BaseTarballPath(rootDir, name)
+		tarball := sandbox.BaseTarballPath(sbxDir, name)
 		if err := os.RemoveAll(tarball); err != nil {
 			return fmt.Errorf("failed to delete base image %v: %v", tarball, err)
 		}
 
-		confDir := filepath.Join(rootDir, "conf")
+		confDir := filepath.Join(sbxDir, "conf")
 		var found []string
 		for _, ext := range []string{".conf", ".packages", ".mounts"} {
 			fName := name + ext
