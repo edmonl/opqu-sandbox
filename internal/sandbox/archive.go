@@ -6,9 +6,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/klauspost/compress/zstd"
+	"github.com/pkg/xattr"
 )
 
 // ListPaths returns all file paths in the zstd-compressed tarball.
@@ -108,6 +110,20 @@ func Compress(srcDir, destFile string, level zstd.EncoderLevel) error {
 			if info.Mode()&(os.ModeDevice|os.ModeCharDevice) != 0 {
 				header.Devmajor = int64(stat.Rdev >> 8 & 0xfff)
 				header.Devminor = int64(stat.Rdev & 0xff)
+			}
+		}
+
+		// Handle xattrs
+		xattrs, err := xattr.LList(path)
+		if err == nil && len(xattrs) > 0 {
+			if header.PAXRecords == nil {
+				header.PAXRecords = make(map[string]string)
+			}
+			for _, attr := range xattrs {
+				val, err := xattr.LGet(path, attr)
+				if err == nil {
+					header.PAXRecords["SCHILY.xattr."+attr] = string(val)
+				}
 			}
 		}
 
@@ -233,6 +249,15 @@ func Extract(srcFile, destDir string) error {
 		if header.Typeflag != tar.TypeSymlink {
 			if err := os.Chtimes(target, header.AccessTime, header.ModTime); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to restore timestamps for %v: %v\n", target, err)
+			}
+		}
+
+		// Restore xattrs
+		for key, val := range header.PAXRecords {
+			if attrName, ok := strings.CutPrefix(key, "SCHILY.xattr."); ok {
+				if err := xattr.LSet(target, attrName, []byte(val)); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to restore xattr %v for %v: %v\n", attrName, target, err)
+				}
 			}
 		}
 	}
