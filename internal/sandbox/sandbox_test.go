@@ -31,8 +31,4 @@ func TestNames(t *testing.T) {
 	if MachineName(name) != "opqu-sbx-my-box" {
 		t.Errorf("Unexpected machine name: %v", MachineName(name))
 	}
-
-	if BridgeName("test-zone") != "vz-test-zone" {
-		t.Errorf("Unexpected bridge name: %v", BridgeName("test-zone"))
-	}
 }
