@@ -2,6 +2,7 @@
 package sandbox
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"os"
@@ -164,15 +165,22 @@ func changeOwner(path string) error {
 	return nil
 }
 
-func HasMounts(dir string) (bool, error) {
-	mountinfo, err := os.ReadFile("/proc/self/mountinfo")
-	if err != nil {
-		return false, fmt.Errorf("failed to access mount info: %w", err)
-	}
+var mountPathReplacer = strings.NewReplacer(
+	`\040`, " ",
+	`\011`, "\t",
+	`\012`, "\n",
+	`\134`, `\`,
+)
 
-	absDir, err := filepath.Abs(dir)
+func HasMounts(dir string) (bool, error) {
+	// Resolve symlinks since mountinfo reports canonical paths.
+	// Fallback to Abs if it fails (e.g., the directory does not exist).
+	absDir, err := filepath.EvalSymlinks(dir)
 	if err != nil {
-		return false, fmt.Errorf("failed to resolve path %v: %w", dir, err)
+		absDir, err = filepath.Abs(dir)
+		if err != nil {
+			return false, fmt.Errorf("failed to resolve path %v: %w", dir, err)
+		}
 	}
 
 	// Ensure the directory has a trailing slash for prefix matching,
@@ -182,14 +190,25 @@ func HasMounts(dir string) (bool, error) {
 		prefix += "/"
 	}
 
-	for line := range strings.SplitSeq(string(mountinfo), "\n") {
-		fields := strings.Fields(line)
+	f, err := os.Open("/proc/self/mountinfo")
+	if err != nil {
+		return false, fmt.Errorf("failed to access mount info: %w", err)
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
 		if len(fields) >= 5 {
-			mountPoint := fields[4]
+			mountPoint := mountPathReplacer.Replace(fields[4])
 			if mountPoint == absDir || strings.HasPrefix(mountPoint, prefix) {
 				return true, nil
 			}
 		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return false, fmt.Errorf("error reading mount info: %w", err)
 	}
 
 	return false, nil
