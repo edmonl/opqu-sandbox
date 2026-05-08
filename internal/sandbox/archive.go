@@ -15,7 +15,7 @@ import (
 
 // ListPaths returns all file paths in the zstd-compressed tarball.
 func ListPaths(srcFile string) ([]string, error) {
-	f, err := os.OpenFile(srcFile, os.O_RDONLY, 0)
+	f, err := os.Open(srcFile)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +147,7 @@ func Compress(srcDir, destFile string, level zstd.EncoderLevel) error {
 
 // Extract extracts a zstd-compressed tarball to destDir.
 func Extract(srcFile, destDir string) error {
-	f, err := os.OpenFile(srcFile, os.O_RDONLY, 0)
+	f, err := os.Open(srcFile)
 	if err != nil {
 		return err
 	}
