@@ -126,7 +126,7 @@ func getSetupScript(name string, conf *config.Config) string {
 	if conf.RootPassword == "" {
 		rootAction = "passwd -l root"
 	} else {
-		rootAction = fmt.Sprintf("echo 'root:%v' | chpasswd", conf.RootPassword)
+		rootAction = fmt.Sprintf("echo 'root:'%v | chpasswd", util.EscapeShellArg(conf.RootPassword))
 	}
 
 	uid := conf.SandboxUser.Uid
@@ -135,12 +135,13 @@ func getSetupScript(name string, conf *config.Config) string {
 	if uid == "0" {
 		createUserCmd = rootAction
 	} else {
-		createUserCmd = fmt.Sprintf("useradd -m -u %v -s /bin/bash %v && %v && passwd -l %v", uid, userName, rootAction, userName)
+		escapedUserName := util.EscapeShellArg(userName)
+		createUserCmd = fmt.Sprintf("useradd -m -u %v -s /bin/bash %v && %v && passwd -l %v", uid, escapedUserName, rootAction, escapedUserName)
 	}
 
 	// Set hostname and basic /etc/hosts
-	hostnameCmd := fmt.Sprintf("echo %v > /etc/hostname", name)
-	hostsCmd := fmt.Sprintf("printf '127.0.0.1\\tlocalhost\\n127.0.1.1\\t%v\\n\\n# The following lines are desirable for IPv6 capable hosts\\n::1\\tlocalhost ip6-localhost ip6-loopback\\nff02::1\\tip6-allnodes\\nff02::2\\tip6-allrouters\\n' > /etc/hosts", name)
+	hostnameCmd := fmt.Sprintf("echo %v > /etc/hostname", util.EscapeShellArg(name))
+	hostsCmd := fmt.Sprintf("printf '127.0.0.1\\tlocalhost\\n127.0.1.1\\t%%s\\n\\n# The following lines are desirable for IPv6 capable hosts\\n::1\\tlocalhost ip6-localhost ip6-loopback\\nff02::1\\tip6-allnodes\\nff02::2\\tip6-allrouters\\n' %v > /etc/hosts", util.EscapeShellArg(name))
 
 	return fmt.Sprintf("%v && %v && %v", hostnameCmd, hostsCmd, createUserCmd)
 }

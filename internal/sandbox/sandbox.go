@@ -26,39 +26,8 @@ func ValidateName(name string) error {
 	return fmt.Errorf("sandbox name %v is invalid, must be lowercase alphanumeric and hyphens only", name)
 }
 
-func EnsureStopped(name string) error {
-	if err := ValidateName(name); err != nil {
-		return err
-	}
-
-	running, err := IsRunning(name)
-	if err != nil {
-		return err
-	}
-
-	if running {
-		return errors.New("cannot operate a running sandbox")
-	}
-
-	return nil
-}
-
 func MachineName(name string) string {
 	return fmt.Sprintf("opqu-sbx-%v", name)
-}
-
-func IsRunning(name string) (bool, error) {
-	machine := MachineName(name)
-	cmd := exec.Command("machinectl", "show", machine, "--property=State")
-	output, err := cmd.Output()
-	if err == nil {
-		return strings.TrimSpace(string(output)) == "State=running", nil
-	}
-
-	if _, ok := errors.AsType[*exec.ExitError](err); ok {
-		return false, nil
-	}
-	return false, fmt.Errorf("failed to get sandbox state with machinectl: %v", err)
 }
 
 func RunCmd(cmd string, args ...string) error {
@@ -92,6 +61,36 @@ func ReplaceRootfs(rootfsPath, archivePath string) error {
 	// Cleanup backup on success
 	if err := os.RemoveAll(bakPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to delete rootfs backup %v: %v\n", bakPath, err)
+	}
+
+	return nil
+}
+
+func IsRunning(name string) (bool, error) {
+	cmd := exec.Command("machinectl", "show", name, "--property=State", "--value")
+	output, err := cmd.Output()
+	if err == nil {
+		return strings.TrimSpace(string(output)) == "running", nil
+	}
+
+	if _, ok := errors.AsType[*exec.ExitError](err); ok {
+		return false, nil
+	}
+	return false, fmt.Errorf("failed to get sandbox state with machinectl: %v", err)
+}
+
+func EnsureStopped(name string) error {
+	if err := ValidateName(name); err != nil {
+		return err
+	}
+
+	running, err := IsRunning(name)
+	if err != nil {
+		return err
+	}
+
+	if running {
+		return errors.New("cannot operate a running sandbox")
 	}
 
 	return nil

@@ -55,9 +55,9 @@ func Sudo(sbxDir string) error {
 		// su -c "exe args..."
 		// We need to escape arguments for the shell
 		var args []string
-		args = append(args, escape(exe))
+		args = append(args, util.EscapeShellArg(exe))
 		for _, arg := range escalatedArgs {
-			args = append(args, escape(arg))
+			args = append(args, util.EscapeShellArg(arg))
 		}
 
 		// When using su, we should manually set SUDO_USER so LoadConf works
@@ -79,8 +79,4 @@ func Sudo(sbxDir string) error {
 		os.Exit(0)
 	}
 	return err
-}
-
-func escape(arg string) string {
-	return fmt.Sprintf("'%v'", strings.ReplaceAll(arg, "'", "'\\''"))
 }

@@ -22,3 +22,8 @@ func Confirm(prompt string) (string, error) {
 
 	return strings.TrimRight(input, "\r\n"), nil
 }
+
+// EscapeShellArg wraps a string in single quotes, safely escaping any internal single quotes for shell execution.
+func EscapeShellArg(arg string) string {
+	return fmt.Sprintf("'%v'", strings.ReplaceAll(arg, "'", "'\\''"))
+}

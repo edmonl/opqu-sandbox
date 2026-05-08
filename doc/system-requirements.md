@@ -32,6 +32,12 @@ A standard Debian installation should already have these packages and commands a
 - `procps` (important): provides `sysctl`.
 - `util-linux` (required): provides `su`.
 
+## System Paths Accessed
+
+`sbx` directly reads the following system paths on the host to gather status and ensure safe operations:
+- `/proc/sys/net/ipv4/ip_forward`: Read to verify if the Linux kernel is configured to allow packet forwarding (required for sandbox internet access).
+- `/proc/self/mountinfo`: Read before deleting a sandbox to ensure its root filesystem does not contain any active system bind mounts.
+
 ### Networking Requirements
 
 For sandboxes to have outbound internet access, the host system must be configured to handle virtual routing, DHCP, and firewall traversal.
