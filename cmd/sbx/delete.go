@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/edmonl/opqu-sandbox/internal/config"
 	"github.com/edmonl/opqu-sandbox/internal/sandbox"
 	"github.com/spf13/cobra"
 )
@@ -19,17 +20,23 @@ var deleteCmd = &cobra.Command{
 			return err
 		}
 
-		if err := sudo(); err != nil {
+		conf, err := config.LoadConf(sbxDir, name)
+		if err != nil {
 			return err
 		}
 
-		if err := sandbox.RemoveRootfs(sbxDir, name); err != nil {
+		if err := sandbox.Sudo(sbxDir); err != nil {
+			return err
+		}
+
+		sandboxFs := filepath.Join(conf.ImagePath, name)
+		if err := os.RemoveAll(sandboxFs); err != nil {
 			return fmt.Errorf("failed to delete sandbox rootfs: %v", err)
 		}
 
-		tarball := sandbox.BaseTarballPath(sbxDir, name)
-		if err := os.RemoveAll(tarball); err != nil {
-			return fmt.Errorf("failed to delete base image %v: %v", tarball, err)
+		snapshotsDir := filepath.Join(sbxDir, "snapshots", name)
+		if err := os.RemoveAll(snapshotsDir); err != nil {
+			return fmt.Errorf("failed to delete snapshots directory %v: %v", snapshotsDir, err)
 		}
 
 		confDir := filepath.Join(sbxDir, "conf")

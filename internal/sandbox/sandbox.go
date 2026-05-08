@@ -114,7 +114,7 @@ func CreateSnapshot(rootfsPath, snapshotsDir, snapshotName string) error {
 		if errCleanup := os.RemoveAll(snapshotPath); errCleanup != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to clean up %v: %v\n", snapshotPath, errCleanup)
 		}
-		return fmt.Errorf("failed to create snapshot: %w", err)
+		return err
 	}
 
 	if err := changeOwner(snapshotPath); err != nil {

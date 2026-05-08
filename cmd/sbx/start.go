@@ -20,7 +20,7 @@ var startCmd = &cobra.Command{
 			return err
 		}
 
-		if err := sudo(); err != nil {
+		if err := sandbox.Sudo(sbxDir); err != nil {
 			return err
 		}
 

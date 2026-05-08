@@ -1,6 +1,9 @@
 package main
 
 import (
+	"path/filepath"
+
+	"github.com/edmonl/opqu-sandbox/internal/config"
 	"github.com/edmonl/opqu-sandbox/internal/sandbox"
 	"github.com/spf13/cobra"
 )
@@ -15,12 +18,18 @@ var restoreCmd = &cobra.Command{
 			return err
 		}
 
-		if err := sudo(); err != nil {
+		conf, err := config.LoadConf(sbxDir, name)
+		if err != nil {
+			return err
+		}
+
+		if err := sandbox.Sudo(sbxDir); err != nil {
 			return err
 		}
 
 		snapshotPath := args[1]
-		return sandbox.ReplaceRootfs(sbxDir, name, snapshotPath)
+		rootfsPath := filepath.Join(conf.ImagePath, name)
+		return sandbox.ReplaceRootfs(rootfsPath, snapshotPath)
 	},
 }
 

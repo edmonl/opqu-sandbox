@@ -1,4 +1,4 @@
-package main
+package sandbox
 
 import (
 	"errors"
@@ -12,7 +12,7 @@ import (
 	"github.com/edmonl/opqu-sandbox/internal/util"
 )
 
-func sudo() error {
+func Sudo(sbxDir string) error {
 	// Only escalate if not already root
 	if os.Geteuid() == 0 {
 		return nil
@@ -27,14 +27,13 @@ func sudo() error {
 		return errors.New("neither sudo nor su found in PATH")
 	}
 
-	prompt := fmt.Sprintf("This operation requires to invoke %v. Press [Enter] directly to escalate, or Ctrl+C to cancel: ", escalationCmd)
+	prompt := fmt.Sprintf("This operation requires to invoke %v. Press [Enter] directly to continue, or Ctrl+C to cancel: ", escalationCmd)
 	input, err := util.Confirm(prompt)
 	if err != nil {
 		return err
 	}
 	if input != "" {
-		fmt.Println("Escalation cancelled.")
-		os.Exit(0)
+		return fmt.Errorf("user cancelled invoking %v", escalationCmd)
 	}
 
 	exe, err := filepath.Abs(os.Args[0])
@@ -76,7 +75,7 @@ func sudo() error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	err = cmd.Run()
-	if  err == nil {
+	if err == nil {
 		os.Exit(0)
 	}
 	return err

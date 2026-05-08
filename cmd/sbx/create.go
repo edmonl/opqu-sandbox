@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,7 +10,6 @@ import (
 	"github.com/edmonl/opqu-sandbox/internal/config"
 	"github.com/edmonl/opqu-sandbox/internal/sandbox"
 	"github.com/edmonl/opqu-sandbox/internal/util"
-	"github.com/klauspost/compress/zstd"
 	"github.com/spf13/cobra"
 )
 
@@ -25,60 +23,44 @@ var createCmd = &cobra.Command{
 			return err
 		}
 
+		// create those dirs with current user
+		snapshotsDir := filepath.Join(sbxDir, "snapshots", name)
+		if err := os.MkdirAll(snapshotsDir, 0o755); err != nil {
+			return fmt.Errorf("failed to create snapshots directory %v: %w", snapshotsDir, err)
+		}
+		pkgCache := filepath.Join(sbxDir, "pkg-cache")
+		if err := os.MkdirAll(pkgCache, 0o755); err != nil {
+			return fmt.Errorf("failed to create pkg-cache directory %v: %w", pkgCache, err)
+		}
+
+		if err := sandbox.Sudo(sbxDir); err != nil {
+			return err
+		}
+
 		conf, err := config.LoadConf(sbxDir, name)
 		if err != nil {
 			return err
 		}
-
-		imagePath := filepath.Join(sbxDir, name)
-		pkgCache := filepath.Join(sbxDir, "pkg-cache")
-		// best effort for the current user
-		os.MkdirAll(imagePath, 0o755)
-		os.MkdirAll(pkgCache, 0o755)
-
-		if err := sudo(); err != nil {
-			return err
-		}
-
-		if err := os.MkdirAll(imagePath, 0o755); err != nil {
-			return fmt.Errorf("failed to create rootfs directory: %v", err)
-		}
-		if err := os.MkdirAll(pkgCache, 0o755); err != nil {
-			return fmt.Errorf("failed to create pkg-cache directory: %v", err)
-		}
-
 
 		packages, err := config.LoadPackages(sbxDir, name)
 		if err != nil {
 			return err
 		}
 
-		sandboxFs := sandbox.RootfsPath(sbxDir, name)
+		sandboxFs := filepath.Join(conf.ImagePath, name)
 		if _, err := os.Stat(sandboxFs); err == nil {
-			return errors.New("sandbox rootfs already exists")
+			return fmt.Errorf("sandbox rootfs %v already exists", sandboxFs)
+		}
+		if err := os.MkdirAll(sandboxFs, 0o755); err != nil {
+			return fmt.Errorf("failed to create rootfs directory %v: %w", sandboxFs, err)
 		}
 
-		tarball := sandbox.BaseTarballPath(sbxDir, name)
-		if _, err := os.Stat(tarball); err == nil {
-			prompt := fmt.Sprintf("Base image %v already exists. Press [Enter] directly to recreate rootfs from the base image, or enter \"overwrite\" to overwrite it with a new rootfs (Ctrl+C to cancel): ", filepath.Base(tarball))
-			input, err := util.Confirm(prompt)
-			if err != nil {
-				return err
+		var provisionSuccess bool
+		defer func() {
+			if !provisionSuccess {
+				os.RemoveAll(sandboxFs)
 			}
-			if input == "" {
-				if err := sandbox.Extract(tarball, sandboxFs); err != nil {
-					return fmt.Errorf("failed to extract from base image: %v", err)
-				}
-				fmt.Printf("Sandbox %v recreated from existing base image.\n", name)
-				return nil
-			}
-			if input != "overwrite" {
-				fmt.Fprintf(os.Stderr, "Operation cancelled.\n")
-				return nil
-			}
-
-			fmt.Println("Creating fresh rootfs and overwriting existing base image")
-		}
+		}()
 
 		if _, err := exec.LookPath("mmdebstrap"); err == nil {
 			mmdebstrapArgs := []string{
@@ -98,11 +80,9 @@ var createCmd = &cobra.Command{
 			mmdebstrapArgs = append(mmdebstrapArgs, conf.Distro, sandboxFs, conf.Mirror)
 
 			if err := sandbox.RunCmd("mmdebstrap", mmdebstrapArgs...); err != nil {
-				return fmt.Errorf("provisioning sandbox with mmdebstrap failed: %v", err)
+				return fmt.Errorf("provisioning sandbox %v with mmdebstrap failed: %w", name, err)
 			}
 		} else if _, err := exec.LookPath("debootstrap"); err == nil {
-			fmt.Println("mmdebstrap not found, falling back to debootstrap")
-
 			debootstrapArgs := []string{
 				"--variant=" + conf.Variant,
 			}
@@ -114,26 +94,29 @@ var createCmd = &cobra.Command{
 			debootstrapArgs = append(debootstrapArgs, conf.Distro, sandboxFs, conf.Mirror)
 
 			if err := sandbox.RunCmd("debootstrap", debootstrapArgs...); err != nil {
-				return fmt.Errorf("provisioning sandbox with debootstrap failed: %v", err)
+				return fmt.Errorf("provisioning sandbox %v with debootstrap failed: %w", name, err)
 			}
 
 			// Provision sandbox: hostname, hosts, and user
 			if err := sandbox.RunCmd("chroot", sandboxFs, "/bin/sh", "-c", getSetupScript(name, conf)); err != nil {
-				return fmt.Errorf("failed to provision sandbox: %v", err)
+				return fmt.Errorf("failed to provision sandbox: %w", err)
 			}
 
 			// Enable networking
 			if err := sandbox.RunCmd("chroot", sandboxFs, "systemctl", "enable", "systemd-networkd"); err != nil {
-				return fmt.Errorf("failed to enable systemd-networkd: %v", err)
+				return fmt.Errorf("failed to enable systemd-networkd: %w", err)
 			}
 		} else {
 			return fmt.Errorf("neither mmdebstrap nor debootstrap found in PATH")
 		}
 
-		if err := sandbox.Compress(sandboxFs, tarball, zstd.SpeedDefault); err != nil {
-			return fmt.Errorf("failed to create base image for sandbox: %v", err)
+		provisionSuccess = true
+
+		if err := sandbox.CreateSnapshot(sandboxFs, snapshotsDir, "base"); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to create base snapshot: %v", err)
 		}
 
+		fmt.Printf("Successfully created sandbox %v\n", name)
 		return nil
 	},
 }
