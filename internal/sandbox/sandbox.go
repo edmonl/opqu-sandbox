@@ -98,26 +98,41 @@ func EnsureStopped(name string) error {
 
 // CreateSnapshot creates a zstd-compressed tarball of the rootfs and changes ownership to SUDO_USER if applicable.
 func CreateSnapshot(rootfsPath, snapshotsDir, snapshotName string) error {
-	snapshotPath := filepath.Join(snapshotsDir, fmt.Sprintf("%v.%v.tar.zst", snapshotName, time.Now().Format("2006-01-02T15-04-05")))
-	if _, err := os.Stat(snapshotPath); err == nil {
-		input, err := util.Confirm(fmt.Sprintf("Snapshot %v already exists. Press <Enter> directly to overwrite it, or Ctrl+C to cancel: ", snapshotPath))
+	pattern := filepath.Join(snapshotsDir, snapshotName+".*.tar.zst")
+	oldSnapshots, err := filepath.Glob(pattern)
+	if err != nil {
+		return fmt.Errorf("failed to list old snapshots: %w", err)
+	}
+
+	if len(oldSnapshots) > 0 {
+		input, err := util.Confirm(fmt.Sprintf("Snapshot %v already exists. Press <Enter> directly to overwrite, or Ctrl+C to cancel: ", snapshotName))
 		if err != nil {
 			return err
 		}
 		if input != "" {
-			return fmt.Errorf("user cancelled overwriting snapshot %v", snapshotPath)
+			return fmt.Errorf("user cancelled overwriting snapshot %v", snapshotName)
 		}
 	}
+
+	snapshotPath := filepath.Join(snapshotsDir, fmt.Sprintf("%v.%v.tar.zst", snapshotName, time.Now().Format("2006-01-02T15-04-05")))
 
 	if err := Compress(rootfsPath, snapshotPath, zstd.SpeedDefault); err != nil {
 		if errCleanup := os.RemoveAll(snapshotPath); errCleanup != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to clean up %v: %v\n", snapshotPath, errCleanup)
 		}
-		return err
+		return fmt.Errorf("failed to create snapshot: %w", err)
 	}
 
 	if err := changeOwner(snapshotPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to change ownership of %v: %v\n", snapshotPath, err)
+	}
+
+	for _, old := range oldSnapshots {
+		if old != snapshotPath {
+			if err := os.RemoveAll(old); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to remove old snapshot %v: %v\n", old, err)
+			}
+		}
 	}
 
 	return nil
@@ -147,4 +162,35 @@ func changeOwner(path string) error {
 	}
 
 	return nil
+}
+
+func HasMounts(dir string) (bool, error) {
+	mountinfo, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return false, fmt.Errorf("failed to access mount info: %w", err)
+	}
+
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return false, fmt.Errorf("failed to resolve path %v: %w", dir, err)
+	}
+
+	// Ensure the directory has a trailing slash for prefix matching,
+	// except when matching the exact directory itself.
+	prefix := absDir
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+
+	for line := range strings.SplitSeq(string(mountinfo), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 5 {
+			mountPoint := fields[4]
+			if mountPoint == absDir || strings.HasPrefix(mountPoint, prefix) {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
 }

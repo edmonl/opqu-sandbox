@@ -16,11 +16,12 @@ var deleteCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		if err := sandbox.EnsureStopped(name); err != nil {
+
+		if err := sandbox.Sudo(sbxDir); err != nil {
 			return err
 		}
 
-		if err := sandbox.Sudo(sbxDir); err != nil {
+		if err := sandbox.EnsureStopped(name); err != nil {
 			return err
 		}
 
@@ -38,6 +39,14 @@ var deleteCmd = &cobra.Command{
 		snapshotsDir := filepath.Join(sbxDir, "snapshots", name)
 		if err := os.RemoveAll(snapshotsDir); err != nil {
 			return fmt.Errorf("failed to delete snapshots directory %v: %v", snapshotsDir, err)
+		}
+
+		hasMounts, err := sandbox.HasMounts(sandboxFsDelete)
+		if err != nil {
+			return fmt.Errorf("failed to check for active mounts in %v: %w", sandboxFsDelete, err)
+		}
+		if hasMounts {
+			return fmt.Errorf("cannot delete sandbox rootfs %v because it contains active mounts. Please ensure the sandbox is fully stopped and unmounted", sandboxFsDelete)
 		}
 
 		if err := os.RemoveAll(sandboxFsDelete); err != nil {

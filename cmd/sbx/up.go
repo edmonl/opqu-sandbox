@@ -10,8 +10,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var startCmd = &cobra.Command{
-	Use:   "start [name]",
+var upCmd = &cobra.Command{
+	Use:   "up [name]",
 	Short: "Power on a sandbox",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -76,5 +76,5 @@ var startCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(startCmd)
+	rootCmd.AddCommand(upCmd)
 }

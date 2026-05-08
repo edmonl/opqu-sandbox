@@ -7,8 +7,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var stopCmd = &cobra.Command{
-	Use:   "stop [name]",
+var downCmd = &cobra.Command{
+	Use:   "down [name]",
 	Short: "Power off a running sandbox",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -31,5 +31,5 @@ var stopCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(stopCmd)
+	rootCmd.AddCommand(downCmd)
 }
