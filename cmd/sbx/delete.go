@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -30,27 +32,18 @@ var deleteCmd = &cobra.Command{
 			return err
 		}
 
-		sandboxFs := filepath.Join(conf.ImagePath, name)
-		sandboxFsDelete := sandboxFs + ".delete"
-		if err := os.Rename(sandboxFs, sandboxFsDelete); err != nil {
-			return fmt.Errorf("failed to delete sandbox rootfs %v: %v", sandboxFs, err)
+		if err := sandbox.RunCmd("machinectl", "remove", name); err != nil {
+			return fmt.Errorf("failed to delete sandbox rootfs %v using machinectl: %w", name, err)
+		}
+
+		nspawnFile := filepath.Join(conf.ImagePath, name+".nspawn")
+		if err := os.Remove(nspawnFile); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			fmt.Fprintf(os.Stderr, "Warning: failed to delete nspawn config file %v: %v\n", nspawnFile, err)
 		}
 
 		snapshotsDir := filepath.Join(sbxDir, "snapshots", name)
 		if err := os.RemoveAll(snapshotsDir); err != nil {
-			return fmt.Errorf("failed to delete snapshots directory %v: %v", snapshotsDir, err)
-		}
-
-		hasMounts, err := sandbox.HasMounts(sandboxFsDelete)
-		if err != nil {
-			return fmt.Errorf("failed to check for active mounts in %v: %w", sandboxFsDelete, err)
-		}
-		if hasMounts {
-			return fmt.Errorf("cannot delete sandbox rootfs %v because it contains active mounts. Please ensure the sandbox is fully stopped and unmounted", sandboxFsDelete)
-		}
-
-		if err := os.RemoveAll(sandboxFsDelete); err != nil {
-			return fmt.Errorf("failed to delete sandbox rootfs %v: %v", sandboxFsDelete, err)
+			fmt.Fprintf(os.Stderr, "Warning: failed to delete snapshots directory %v: %v\n", snapshotsDir, err)
 		}
 
 		confDir := filepath.Join(sbxDir, "conf")

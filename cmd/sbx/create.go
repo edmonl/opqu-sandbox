@@ -58,6 +58,15 @@ var createCmd = &cobra.Command{
 		var provisionSuccess bool
 		defer func() {
 			if !provisionSuccess {
+				hasMounts, err := sandbox.HasMounts(sandboxFs)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: Failed to check for active mounts in %v: %v. Skipping automatic cleanup for safety. Please clean up manually.\n", sandboxFs, err)
+					return
+				}
+				if hasMounts {
+					fmt.Fprintf(os.Stderr, "Warning: Active mounts detected in %v. Skipping automatic cleanup to prevent host system damage. Please unmount manually.\n", sandboxFs)
+					return
+				}
 				os.RemoveAll(sandboxFs)
 			}
 		}()
@@ -110,6 +119,9 @@ var createCmd = &cobra.Command{
 			return fmt.Errorf("neither mmdebstrap nor debootstrap found in PATH")
 		}
 
+		// Clean up apt partial directory to prevent permission errors for unprivileged users
+		os.RemoveAll(filepath.Join(pkgCache, "partial"))
+
 		provisionSuccess = true
 
 		if err := sandbox.CreateSnapshot(sandboxFs, snapshotsDir, "base"); err != nil {
@@ -126,7 +138,7 @@ func getSetupScript(name string, conf *config.Config) string {
 	if conf.RootPassword == "" {
 		rootAction = "passwd -l root"
 	} else {
-		rootAction = fmt.Sprintf("echo 'root:'%v | chpasswd", util.EscapeShellArg(conf.RootPassword))
+		rootAction = fmt.Sprintf("printf '%%s\\n' 'root:'%v | chpasswd", util.EscapeShellArg(conf.RootPassword))
 	}
 
 	uid := conf.SandboxUser.Uid
@@ -140,10 +152,14 @@ func getSetupScript(name string, conf *config.Config) string {
 	}
 
 	// Set hostname and basic /etc/hosts
-	hostnameCmd := fmt.Sprintf("echo %v > /etc/hostname", util.EscapeShellArg(name))
+	hostnameCmd := fmt.Sprintf("printf '%%s\\n' %v > /etc/hostname", util.EscapeShellArg(name))
 	hostsCmd := fmt.Sprintf("printf '127.0.0.1\\tlocalhost\\n127.0.1.1\\t%%s\\n\\n# The following lines are desirable for IPv6 capable hosts\\n::1\\tlocalhost ip6-localhost ip6-loopback\\nff02::1\\tip6-allnodes\\nff02::2\\tip6-allrouters\\n' %v > /etc/hosts", util.EscapeShellArg(name))
 
 	return fmt.Sprintf("%v && %v && %v", hostnameCmd, hostsCmd, createUserCmd)
+}
+
+func init() {
+	rootCmd.AddCommand(createCmd)
 }
 
 func init() {

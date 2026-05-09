@@ -41,7 +41,7 @@ All configuration files are optional and located in the `conf/` directory.
 This file in dotenv format defines default settings for *creating* sandboxes with the following default values:
 
 ```bash
-IMAGE_PATH=/var/lib/machines # search path for machine images, used by `machinectl`
+IMAGE_PATH=/var/lib/machines # search path for machine images and `.nspawn` files
 DISTRO=stable
 MIRROR=http://deb.debian.org/debian
 VARIANT=standard             # standard = full usable base; required = minimal

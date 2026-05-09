@@ -24,11 +24,3 @@ func TestValidateName(t *testing.T) {
 		}
 	}
 }
-
-func TestNames(t *testing.T) {
-	name := "my-box"
-
-	if MachineName(name) != "opqu-sbx-my-box" {
-		t.Errorf("Unexpected machine name: %v", MachineName(name))
-	}
-}

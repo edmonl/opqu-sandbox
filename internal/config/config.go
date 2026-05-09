@@ -95,6 +95,9 @@ func LoadConf(sbxDir, name string) (*Config, error) {
 		conf.ResolvConf = v
 	}
 	if v := rawConf["ROOT_USER_PASSWORD"]; v != "" {
+		if !passwordRegex.MatchString(v) {
+			return nil, errors.New("failed to load configuration: ROOT_USER_PASSWORD must contain only visible characters and no control characters")
+		}
 		conf.RootPassword = v
 	}
 	if v := rawConf["IMAGE_PATH"]; v != "" {

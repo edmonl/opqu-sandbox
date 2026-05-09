@@ -27,10 +27,6 @@ func ValidateName(name string) error {
 	return fmt.Errorf("sandbox name %v is invalid, must be lowercase alphanumeric and hyphens only", name)
 }
 
-func MachineName(name string) string {
-	return fmt.Sprintf("opqu-sbx-%v", name)
-}
-
 func RunCmd(cmd string, args ...string) error {
 	execCmd := exec.Command(cmd, args...)
 	execCmd.Stdin = os.Stdin
