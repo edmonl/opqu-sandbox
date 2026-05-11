@@ -18,12 +18,12 @@ var restoreCmd = &cobra.Command{
 			return err
 		}
 
-		conf, err := config.LoadConf(sbxDir, name)
-		if err != nil {
+		if err := sandbox.Sudo(sbxDir); err != nil {
 			return err
 		}
 
-		if err := sandbox.Sudo(sbxDir); err != nil {
+		conf, err := config.LoadConf(sbxDir, name)
+		if err != nil {
 			return err
 		}
 

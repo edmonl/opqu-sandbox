@@ -34,6 +34,7 @@ type Config struct {
 }
 
 var zoneRegex = regexp.MustCompile(`^[a-z0-9-]+$`)
+var passwordRegex = regexp.MustCompile(`^\P{C}+$`)
 
 func loadConfFile(path string) (map[string]string, error) {
 	conf, err := godotenv.Read(path)

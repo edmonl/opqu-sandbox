@@ -28,12 +28,12 @@ var snapshotCmd = &cobra.Command{
 			return fmt.Errorf("snapshot name %q is invalid, must be alphanumeric, '_', and '-' only", snapshotName)
 		}
 
-		conf, err := config.LoadConf(sbxDir, name)
-		if err != nil {
+		if err := sandbox.Sudo(sbxDir); err != nil {
 			return err
 		}
 
-		if err := sandbox.Sudo(sbxDir); err != nil {
+		conf, err := config.LoadConf(sbxDir, name)
+		if err != nil {
 			return err
 		}
 

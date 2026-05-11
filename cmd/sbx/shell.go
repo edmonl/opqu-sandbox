@@ -25,7 +25,7 @@ var shellCmd = &cobra.Command{
 
 		execArgs := []string{
 			"shell",
-			fmt.Sprintf("%v@%v", conf.SandboxUser.Username, sandbox.MachineName(name)),
+			fmt.Sprintf("%v@%v", conf.SandboxUser.Username, name),
 		}
 		if len(args) > 1 {
 			execArgs = append(execArgs, args[1:]...)

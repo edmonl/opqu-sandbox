@@ -70,7 +70,7 @@ func showGlobalStatus() error {
 			}
 			var rows []row
 			maxSandbox, maxOS := 7, 2 // lengths of "SANDBOX" and "OS"
-			prefix := sandbox.MachineName("")
+			prefix := ""
 
 			for _, m := range machines {
 				if strings.HasPrefix(m.Machine, prefix) && m.Class == "container" && m.Service == "systemd-nspawn" {
@@ -115,8 +115,13 @@ func showGlobalStatus() error {
 		hasError = true
 	}
 
+	conf, confErr := config.LoadConf(sbxDir, "")
+	rootfsDir := "/var/lib/machines"
+	if confErr == nil {
+		rootfsDir = conf.ImagePath
+	}
+
 	fmt.Println("\nExisting Rootfs:")
-	rootfsDir := filepath.Join(sbxDir, "rootfs")
 	if entries, err := os.ReadDir(rootfsDir); err == nil {
 		found := false
 		for _, entry := range entries {
@@ -137,13 +142,13 @@ func showGlobalStatus() error {
 	}
 
 	fmt.Println()
-	if conf, err := config.LoadConf(sbxDir, ""); err == nil {
+	if confErr == nil {
 		u := conf.SandboxUser
 		format = normalFormat
 		status = fmt.Sprintf("%v (UID %v) ok", u.Username, u.Uid)
 	} else {
 		format = errFormat
-		status = err
+		status = confErr
 		hasError = true
 	}
 	fmt.Printf(format, "Sandbox User:", status)
@@ -186,7 +191,7 @@ func showSandboxStatus(name string) error {
 		return err
 	}
 
-	fmt.Printf(normalFormat, "Machine Name:", sandbox.MachineName(name))
+	fmt.Printf(normalFormat, "Machine Name:", name)
 
 	rootfs := filepath.Join(sbxDir, "rootfs")
 
@@ -207,15 +212,11 @@ func showSandboxStatus(name string) error {
 	}
 	fmt.Printf(format, "Rootfs:", status)
 
-	if info, err := os.Stat(filepath.Join(rootfs, fmt.Sprintf("%v.base.tar.zst", name))); err == nil {
-		if info.Mode().IsRegular() {
-			format = normalFormat
-			status = "ok"
-		} else {
-			format = errFormat
-			status = "not a regular file"
-		}
-	} else if errors.Is(err, fs.ErrNotExist) {
+	matches, err := filepath.Glob(filepath.Join(sbxDir, "snapshots", name, "base.*.tar.zst"))
+	if err == nil && len(matches) > 0 {
+		format = normalFormat
+		status = "ok"
+	} else if len(matches) == 0 {
 		format = normalFormat
 		status = "missing"
 	} else {

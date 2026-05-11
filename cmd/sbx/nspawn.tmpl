@@ -1,0 +1,12 @@
+[Exec]
+Boot=yes
+ResolvConf={{.Conf.ResolvConf}}
+
+[Files]
+{{range .Mounts}}{{if .ReadOnly}}BindReadOnly={{.HostPath}}:{{.SandboxPath}}
+{{else}}Bind={{.HostPath}}:{{.SandboxPath}}
+{{end}}{{end}}
+[Network]
+Zone={{.Conf.NetworkZone}}
+{{range .Conf.Ports}}Port={{.}}
+{{end}}
