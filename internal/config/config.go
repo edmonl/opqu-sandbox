@@ -30,7 +30,7 @@ type Config struct {
 	NetworkZone  string
 	ResolvConf   string
 	RootPassword string
-	ImagePath    string
+	ImagesPath   string
 }
 
 var zoneRegex = regexp.MustCompile(`^[a-z0-9-]+$`)
@@ -71,7 +71,7 @@ func LoadConf(sbxDir, name string) (*Config, error) {
 		Variant:      "standard",
 		NetworkZone:  "opqu-sbx",
 		ResolvConf:   "auto",
-		ImagePath:    "/var/lib/machines",
+		ImagesPath:   "/var/lib/machines",
 	}
 
 	if v := rawConf["DISTRO"]; v != "" {
@@ -101,11 +101,11 @@ func LoadConf(sbxDir, name string) (*Config, error) {
 		}
 		conf.RootPassword = v
 	}
-	if v := rawConf["IMAGE_PATH"]; v != "" {
+	if v := rawConf["IMAGES_PATH"]; v != "" {
 		if !filepath.IsAbs(v) {
-			return nil, errors.New("failed to load configuration: IMAGE_PATH must be an absolute path")
+			return nil, errors.New("failed to load configuration: IMAGES_PATH must be an absolute path")
 		}
-		conf.ImagePath = v
+		conf.ImagesPath = v
 	}
 
 	if v := rawConf["PORTS"]; v != "" {
