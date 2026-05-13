@@ -22,15 +22,16 @@ type Mount struct {
 }
 
 type Config struct {
-	Distro       string
-	Mirror       string
-	Variant      string
-	SandboxUser  *user.User
-	Ports        []string
-	NetworkZone  string
-	ResolvConf   string
-	RootPassword string
-	ImagesPath   string
+	Distro          string
+	Mirror          string
+	Variant         string
+	SandboxUser     *user.User
+	Ports           []string
+	NetworkZone     string
+	ResolvConf      string
+	RootPassword    string
+	ImagesPath      string
+	NspawnFilesPath string
 }
 
 var zoneRegex = regexp.MustCompile(`^[a-z0-9-]+$`)
@@ -66,12 +67,13 @@ func LoadConf(sbxDir, name string) (*Config, error) {
 	}
 
 	conf := &Config{
-		Distro:       "stable",
-		Mirror:       "http://deb.debian.org/debian",
-		Variant:      "standard",
-		NetworkZone:  "opqu-sbx",
-		ResolvConf:   "auto",
-		ImagesPath:   "/var/lib/machines",
+		Distro:          "stable",
+		Mirror:          "http://deb.debian.org/debian",
+		Variant:         "standard",
+		NetworkZone:     "opqu-sbx",
+		ResolvConf:      "auto",
+		ImagesPath:      "/var/lib/machines",
+		NspawnFilesPath: "/etc/systemd/nspawn",
 	}
 
 	if v := rawConf["DISTRO"]; v != "" {
@@ -106,6 +108,12 @@ func LoadConf(sbxDir, name string) (*Config, error) {
 			return nil, errors.New("failed to load configuration: IMAGES_PATH must be an absolute path")
 		}
 		conf.ImagesPath = v
+	}
+	if v := rawConf["NSPAWN_FILES_PATH"]; v != "" {
+		if !filepath.IsAbs(v) {
+			return nil, errors.New("failed to load configuration: NSPAWN_FILES_PATH must be an absolute path")
+		}
+		conf.NspawnFilesPath = v
 	}
 
 	if v := rawConf["PORTS"]; v != "" {
