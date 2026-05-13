@@ -1,9 +1,10 @@
 # Uninstall
 
-Use `sbx status` to check sandboxes. Use `sbx stop {name}` to stop running sandboxes. Use `sbx delete {name}` to delete sandboxes.
-Afterward, the entire sandbox directory and the single executable binary may be deleted.
-Remove the export of `OPQU_SBX_DIRECTORY` if you persisted it previously.
+To clean up, first use `sbx status` to check for existing sandboxes. Stop running sandboxes with `sbx stop {name}`, and remove them using `sbx delete {name}`.
 
-Alternatively, you may delete the entire sandbox directory and the executable binary directly, then use `machinectl` to manage the running containers, their images, and relevant systemd units. There may also be `.nspawn` files left in `/var/lib/machines`.
+Alternatively, you can manually stop containers and delete their images and `systemd` units using `machinectl`. Note that `.nspawn` files in `/etc/systemd/nspawn/` must be removed manually.
 
-Virtual network bridges are created on the host to implement *Network Zones*. You can use `ip link show` to list them. Their names are prefixed with `vz-` (e.g., `vz-opqu-sbx`). See [System Requirements](system-requirements.md#network-zones-and-bridges) for details.
+Virtual network bridges are generally removed automatically by the steps above, but you can verify and delete them manually using `networkctl` and `ip` commands.
+
+Once all sandboxes are deleted, you can safely remove the sandbox directory and the `sbx` executable.
+Finally, remove `OPQU_SBX_DIRECTORY` from your environment or shell profile if it was previously exported.
