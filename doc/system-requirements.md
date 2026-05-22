@@ -1,5 +1,6 @@
 # System Requirements
 
+`sbx` is intended to be used interactively.
 You can use `sbx status` to verify the system requirements.
 
 ## Host Commands
