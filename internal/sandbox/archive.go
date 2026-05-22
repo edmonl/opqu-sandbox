@@ -2,8 +2,10 @@ package sandbox
 
 import (
 	"archive/tar"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,46 +15,17 @@ import (
 	"github.com/pkg/xattr"
 )
 
-// ListPaths returns all file paths in the zstd-compressed tarball.
-func ListPaths(srcFile string) ([]string, error) {
-	f, err := os.Open(srcFile)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	zr, err := zstd.NewReader(f)
-	if err != nil {
-		return nil, err
-	}
-	defer zr.Close()
-
-	tr := tar.NewReader(zr)
-	var paths []string
-	for {
-		header, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-		paths = append(paths, header.Name)
-	}
-	return paths, nil
-}
-
 // Compress creates a zstd-compressed tarball of srcDir.
 func Compress(srcDir, destFile string, level zstd.EncoderLevel) error {
 	f, err := os.OpenFile(destFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o666)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create destination file %v: %w", destFile, err)
 	}
 	defer f.Close()
 
 	zw, err := zstd.NewWriter(f, zstd.WithEncoderLevel(level))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create zstd writer for %v: %w", destFile, err)
 	}
 	defer zw.Close()
 
@@ -60,10 +33,9 @@ func Compress(srcDir, destFile string, level zstd.EncoderLevel) error {
 	defer tw.Close()
 
 	seenFiles := map[struct{ dev, ino uint64 }]string{}
-
 	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to walk source path %v: %w", path, err)
 		}
 
 		if path == srcDir {
@@ -74,19 +46,19 @@ func Compress(srcDir, destFile string, level zstd.EncoderLevel) error {
 		if info.Mode()&os.ModeSymlink != 0 {
 			link, e := os.Readlink(path)
 			if e != nil {
-				return e
+				return fmt.Errorf("failed to read symlink %v: %w", path, e)
 			}
 			realPath = link
 		}
 
 		header, err := tar.FileInfoHeader(info, realPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to create tar header for %v: %w", path, err)
 		}
 
 		relPath, err := filepath.Rel(srcDir, path)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to resolve archive path for %v relative to %v: %w", path, srcDir, err)
 		}
 		header.Name = relPath
 
@@ -121,24 +93,30 @@ func Compress(srcDir, destFile string, level zstd.EncoderLevel) error {
 			}
 			for _, attr := range xattrs {
 				val, err := xattr.LGet(path, attr)
-				if err == nil {
-					header.PAXRecords["SCHILY.xattr."+attr] = string(val)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to read xattr %v for %v: %v\n", attr, path, err)
+					continue
 				}
+				header.PAXRecords["SCHILY.xattr."+attr] = string(val)
 			}
+		} else if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to list xattrs for %v: %v\n", path, err)
 		}
 
 		if err := tw.WriteHeader(header); err != nil {
-			return err
+			return fmt.Errorf("failed to write tar header for %v: %w", path, err)
 		}
 
 		if header.Typeflag == tar.TypeReg {
 			file, err := os.Open(path)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to open source file %v: %w", path, err)
 			}
 			defer file.Close()
-			_, err = io.Copy(tw, file)
-			return err
+
+			if _, err := io.Copy(tw, file); err != nil {
+				return fmt.Errorf("failed to write source file %v to archive %v: %w", path, destFile, err)
+			}
 		}
 
 		return nil
@@ -146,29 +124,32 @@ func Compress(srcDir, destFile string, level zstd.EncoderLevel) error {
 }
 
 // Extract extracts a zstd-compressed tarball to destDir.
+// destDir must not already exist; Extract creates it.
+// Archive entries must be ordered with directories before their children.
+// Parent directories are not created implicitly; each entry's immediate parent
+// must already exist as a real directory, not a symlink. Symlink entries are
+// preserved, but later entries cannot be extracted through them.
 func Extract(srcFile, destDir string) error {
 	f, err := os.Open(srcFile)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open archive %v: %w", srcFile, err)
 	}
 	defer f.Close()
 
-	if e := os.MkdirAll(destDir, 0o755); e != nil {
-		return e
-	}
-
-	cwd, err := os.Getwd()
+	destDir, err = filepath.Abs(destDir)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to resolve destination directory %v: %w", destDir, err)
 	}
-	if e := os.Chdir(destDir); e != nil {
-		return e
+	if e := os.Mkdir(destDir, 0o755); e != nil {
+		if errors.Is(e, fs.ErrExist) {
+			return fmt.Errorf("destination directory %v already exists", destDir)
+		}
+		return fmt.Errorf("failed to make destination directory %v: %w", destDir, e)
 	}
-	defer os.Chdir(cwd)
 
 	zr, err := zstd.NewReader(f)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read zstd archive %v: %w", srcFile, err)
 	}
 	defer zr.Close()
 
@@ -180,46 +161,56 @@ func Extract(srcFile, destDir string) error {
 			break
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to read tar entry from %v: %w", srcFile, err)
 		}
 
-		target := header.Name
+		target, err := archiveTargetPath(destDir, header.Name)
+		if err != nil {
+			return fmt.Errorf("failed to resolve archive entry %v: %w", header.Name, err)
+		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, os.FileMode(header.Mode)); err != nil {
-				return err
+			if err := requireParentDir(target); err != nil {
+				return fmt.Errorf("failed to extract directory %v: %w", header.Name, err)
+			}
+			if err := os.Mkdir(target, os.FileMode(header.Mode)); err != nil {
+				return fmt.Errorf("failed to create directory %v: %w", target, err)
 			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
+			if err := requireParentDir(target); err != nil {
+				return fmt.Errorf("failed to extract regular file %v: %w", header.Name, err)
 			}
 			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode))
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to create regular file %v: %w", target, err)
 			}
 			if _, err := io.Copy(f, tr); err != nil {
 				f.Close()
-				return err
+				return fmt.Errorf("failed to write regular file %v: %w", target, err)
 			}
 			f.Close()
 		case tar.TypeSymlink:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
+			if err := requireParentDir(target); err != nil {
+				return fmt.Errorf("failed to extract symlink %v: %w", header.Name, err)
 			}
 			if err := os.Symlink(header.Linkname, target); err != nil {
-				return err
+				return fmt.Errorf("failed to create symlink %v pointing to %v: %w", target, header.Linkname, err)
 			}
 		case tar.TypeLink:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
+			if err := requireParentDir(target); err != nil {
+				return fmt.Errorf("failed to extract hard link %v: %w", header.Name, err)
 			}
-			if err := os.Link(header.Linkname, target); err != nil {
-				return err
+			linkTarget, err := archiveTargetPath(destDir, header.Linkname)
+			if err != nil {
+				return fmt.Errorf("failed to resolve hard link target %v for %v: %w", header.Linkname, header.Name, err)
+			}
+			if err := os.Link(linkTarget, target); err != nil {
+				return fmt.Errorf("failed to create hard link %v linked to %v: %w", target, linkTarget, err)
 			}
 		case tar.TypeChar, tar.TypeBlock:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
+			if err := requireParentDir(target); err != nil {
+				return fmt.Errorf("failed to extract device %v: %w", header.Name, err)
 			}
 			mode := uint32(header.Mode)
 			if header.Typeflag == tar.TypeChar {
@@ -229,20 +220,20 @@ func Extract(srcFile, destDir string) error {
 			}
 			dev := int(header.Devmajor<<8 | header.Devminor)
 			if err := syscall.Mknod(target, mode, dev); err != nil {
-				return err
+				return fmt.Errorf("failed to create device %v: %w", target, err)
 			}
 		case tar.TypeFifo:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
+			if err := requireParentDir(target); err != nil {
+				return fmt.Errorf("failed to extract fifo %v: %w", header.Name, err)
 			}
 			if err := syscall.Mkfifo(target, uint32(header.Mode)); err != nil {
-				return err
+				return fmt.Errorf("failed to create fifo %v: %w", target, err)
 			}
 		}
 
 		// Restore ownership
 		if err := os.Lchown(target, header.Uid, header.Gid); err != nil {
-			return err
+			return fmt.Errorf("failed to restore ownership for %v: %w", target, err)
 		}
 
 		// Restore timestamps (not for symlinks as os.Chtimes follows them)
@@ -260,6 +251,32 @@ func Extract(srcFile, destDir string) error {
 				}
 			}
 		}
+	}
+
+	return nil
+}
+
+func archiveTargetPath(destDir, name string) (string, error) {
+	if name == "" || filepath.IsAbs(name) {
+		return "", fmt.Errorf("unsafe archive path %v", name)
+	}
+
+	clean := filepath.Clean(name)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("unsafe archive path %v", name)
+	}
+
+	return filepath.Join(destDir, clean), nil
+}
+
+func requireParentDir(path string) error {
+	parent := filepath.Dir(path)
+	info, err := os.Lstat(parent)
+	if err != nil {
+		return fmt.Errorf("failed to access parent directory of %v: %w", path, err)
+	}
+	if !info.Mode().IsDir() {
+		return fmt.Errorf("parent path of %v is not a directory", path)
 	}
 	return nil
 }

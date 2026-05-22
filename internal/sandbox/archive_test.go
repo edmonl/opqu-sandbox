@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"archive/tar"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -27,25 +28,7 @@ func TestArchive(t *testing.T) {
 		t.Fatalf("Compress failed: %v", err)
 	}
 
-	// 3. ListPaths
-	paths, err := ListPaths(archiveFile)
-	if err != nil {
-		t.Fatalf("ListPaths failed: %v", err)
-	}
-	expectedPaths := []string{"file1.txt", "link1", "subdir", "subdir/file2.txt"}
-	// ListPaths output depends on filepath.Walk order, but usually sorted or consistent on same FS
-	// Let's just check if all expected paths are present
-	pathMap := make(map[string]bool)
-	for _, p := range paths {
-		pathMap[p] = true
-	}
-	for _, p := range expectedPaths {
-		if !pathMap[p] {
-			t.Errorf("Expected path %v missing from ListPaths output: %v", p, paths)
-		}
-	}
-
-	// 4. Extract
+	// 3. Extract
 	err = Extract(archiveFile, destDir)
 	if err != nil {
 		t.Fatalf("Extract failed: %v", err)
@@ -120,5 +103,174 @@ func TestArchiveHardLink(t *testing.T) {
 		if string(content1) != string(content2) {
 			t.Errorf("Hard link content mismatch")
 		}
+	}
+}
+
+func TestExtractRejectsParentTraversal(t *testing.T) {
+	tmpDir := t.TempDir()
+	destDir := filepath.Join(tmpDir, "dest")
+	archiveFile := filepath.Join(tmpDir, "archive.tar.zst")
+	escapedPath := filepath.Join(tmpDir, "escaped")
+
+	writeTestArchive(t, archiveFile, []testArchiveEntry{{
+		name: "../escaped",
+		body: "escaped",
+		mode: 0o644,
+	}})
+
+	if err := Extract(archiveFile, destDir); err == nil {
+		t.Fatal("Extract accepted a parent traversal path")
+	}
+	if _, err := os.Stat(escapedPath); !os.IsNotExist(err) {
+		t.Fatalf("escaped path exists after failed extraction: %v", err)
+	}
+}
+
+func TestExtractRejectsAbsolutePath(t *testing.T) {
+	tmpDir := t.TempDir()
+	destDir := filepath.Join(tmpDir, "dest")
+	archiveFile := filepath.Join(tmpDir, "archive.tar.zst")
+
+	writeTestArchive(t, archiveFile, []testArchiveEntry{{
+		name: "/tmp/opqu-sandbox-absolute-path-test",
+		body: "absolute",
+		mode: 0o644,
+	}})
+
+	if err := Extract(archiveFile, destDir); err == nil {
+		t.Fatal("Extract accepted an absolute path")
+	}
+}
+
+func TestExtractRejectsExistingDestination(t *testing.T) {
+	tmpDir := t.TempDir()
+	destDir := filepath.Join(tmpDir, "dest")
+	archiveFile := filepath.Join(tmpDir, "archive.tar.zst")
+
+	if err := os.Mkdir(destDir, 0o755); err != nil {
+		t.Fatalf("failed to create destination directory: %v", err)
+	}
+	writeTestArchive(t, archiveFile, []testArchiveEntry{{
+		name: "file",
+		body: "data",
+		mode: 0o644,
+	}})
+
+	if err := Extract(archiveFile, destDir); err == nil {
+		t.Fatal("Extract accepted an existing destination")
+	}
+}
+
+func TestExtractRejectsEscapingHardLink(t *testing.T) {
+	tmpDir := t.TempDir()
+	destDir := filepath.Join(tmpDir, "dest")
+	archiveFile := filepath.Join(tmpDir, "archive.tar.zst")
+
+	writeTestArchive(t, archiveFile, []testArchiveEntry{
+		{
+			name: "file",
+			body: "data",
+			mode: 0o644,
+		},
+		{
+			name:     "link",
+			linkname: "../outside",
+			typeflag: tar.TypeLink,
+			mode:     0o644,
+		},
+	})
+
+	if err := Extract(archiveFile, destDir); err == nil {
+		t.Fatal("Extract accepted a hard link target outside the destination")
+	}
+}
+
+func TestExtractRejectsFileUnderSymlinkParent(t *testing.T) {
+	tmpDir := t.TempDir()
+	destDir := filepath.Join(tmpDir, "dest")
+	archiveFile := filepath.Join(tmpDir, "archive.tar.zst")
+	outsideDir := filepath.Join(tmpDir, "outside")
+
+	if err := os.Mkdir(outsideDir, 0o755); err != nil {
+		t.Fatalf("failed to create outside directory: %v", err)
+	}
+
+	writeTestArchive(t, archiveFile, []testArchiveEntry{
+		{
+			name:     "escape",
+			linkname: outsideDir,
+			typeflag: tar.TypeSymlink,
+			mode:     0o777,
+		},
+		{
+			name: "escape/file",
+			body: "escaped",
+			mode: 0o644,
+		},
+	})
+
+	if err := Extract(archiveFile, destDir); err == nil {
+		t.Fatal("Extract accepted a file under a symlink parent")
+	}
+	if _, err := os.Stat(filepath.Join(outsideDir, "file")); !os.IsNotExist(err) {
+		t.Fatalf("outside file exists after failed extraction: %v", err)
+	}
+}
+
+type testArchiveEntry struct {
+	name     string
+	body     string
+	linkname string
+	typeflag byte
+	mode     int64
+}
+
+func writeTestArchive(t *testing.T, archiveFile string, entries []testArchiveEntry) {
+	t.Helper()
+
+	f, err := os.Create(archiveFile)
+	if err != nil {
+		t.Fatalf("failed to create archive: %v", err)
+	}
+	defer f.Close()
+
+	zw, err := zstd.NewWriter(f, zstd.WithEncoderLevel(zstd.SpeedDefault))
+	if err != nil {
+		t.Fatalf("failed to create zstd writer: %v", err)
+	}
+
+	tw := tar.NewWriter(zw)
+	for _, entry := range entries {
+		typeflag := entry.typeflag
+		if typeflag == 0 {
+			typeflag = tar.TypeReg
+		}
+
+		header := &tar.Header{
+			Name:     entry.name,
+			Mode:     entry.mode,
+			Size:     int64(len(entry.body)),
+			Typeflag: typeflag,
+			Linkname: entry.linkname,
+		}
+		if typeflag != tar.TypeReg {
+			header.Size = 0
+		}
+
+		if err := tw.WriteHeader(header); err != nil {
+			t.Fatalf("failed to write tar header: %v", err)
+		}
+		if typeflag == tar.TypeReg {
+			if _, err := tw.Write([]byte(entry.body)); err != nil {
+				t.Fatalf("failed to write tar body: %v", err)
+			}
+		}
+	}
+
+	if err := tw.Close(); err != nil {
+		t.Fatalf("failed to close tar writer: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("failed to close zstd writer: %v", err)
 	}
 }
