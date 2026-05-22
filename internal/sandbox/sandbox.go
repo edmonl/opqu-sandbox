@@ -5,6 +5,8 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/user"
@@ -20,6 +22,7 @@ import (
 
 var nameRegex = regexp.MustCompile(`^[a-z0-9-]+$`)
 
+// ValidateName ensures the sandbox name consists only of lowercase alphanumeric characters and hyphens.
 func ValidateName(name string) error {
 	if nameRegex.MatchString(name) {
 		return nil
@@ -27,6 +30,8 @@ func ValidateName(name string) error {
 	return fmt.Errorf("sandbox name %v is invalid, must be lowercase alphanumeric and hyphens only", name)
 }
 
+// RunCmd executes a command with the provided arguments, binding its standard streams to the parent process.
+// Raw errors are returned.
 func RunCmd(cmd string, args ...string) error {
 	execCmd := exec.Command(cmd, args...)
 	execCmd.Stdin = os.Stdin
@@ -35,36 +40,70 @@ func RunCmd(cmd string, args ...string) error {
 	return execCmd.Run()
 }
 
+// ReplaceRootfs replaces an existing root filesystem by extracting a new archive.
+// It creates a backup of the current rootfs, extracts the archive, and restores the backup if extraction fails.
 func ReplaceRootfs(rootfsPath, archivePath string) error {
+	if rootfsExists, err := requireInactiveRootfs(rootfsPath); err != nil {
+		return err
+	} else if !rootfsExists {
+		return fmt.Errorf("%v is missing", rootfsPath)
+	}
+
 	bakPath := rootfsPath + ".bak"
+	if bakExists, err := requireInactiveRootfs(bakPath); err != nil {
+		return err
+	} else if bakExists {
+		if err := os.RemoveAll(bakPath); err != nil {
+			return fmt.Errorf("failed to delete exiting backup %v: %w", bakPath, err)
+		}
+	}
 
-	// Remove any existing backup
-	os.RemoveAll(bakPath)
-
-	// Move existing rootfs to backup if it exists
+	// Move existing rootfs to backup.
 	if err := os.Rename(rootfsPath, bakPath); err != nil {
-		return fmt.Errorf("failed to backup rootfs %v: %v", rootfsPath, err)
+		return fmt.Errorf("failed to backup rootfs %v: %w", rootfsPath, err)
 	}
 
 	if err := Extract(archivePath, rootfsPath); err != nil {
 		// Restore backup on failure
-		os.RemoveAll(rootfsPath)
-		if renameErr := os.Rename(bakPath, rootfsPath); renameErr != nil {
-			return fmt.Errorf("failed to extract %v: %v; also failed to restore backup %v to %v: %v", archivePath, err, bakPath, rootfsPath, renameErr)
+		if e := os.RemoveAll(rootfsPath); e != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to restore backup %v: failed to delete unsuccessful extraction result %v: %v\n", bakPath, rootfsPath, e)
+		} else if e := os.Rename(bakPath, rootfsPath); e != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to restore backup %v to %v: %v\n", bakPath, rootfsPath, e)
 		}
-		return fmt.Errorf("failed to extract %v: %v", archivePath, err)
+
+		return fmt.Errorf("failed to extract %v: %w", archivePath, err)
 	}
 
 	// Cleanup backup on success
 	if err := os.RemoveAll(bakPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to delete rootfs backup %v: %v\n", bakPath, err)
+		fmt.Fprintf(os.Stderr, "Warning: failed to delete backup %v: %v\n", bakPath, err)
 	}
 
 	return nil
 }
 
+// The returned bool indicates whether the rootfs exists.
+func requireInactiveRootfs(path string) (bool, error) {
+	if err := util.RequireRealDirectory(path); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		} else {
+			return false, err
+		}
+	}
+
+	hasMounts, err := HasMounts(path)
+	if err == nil && hasMounts {
+		err = fmt.Errorf("%v contains active mounts", path)
+	}
+
+	return true, err
+}
+
+// IsRunning checks whether the sandbox with the specified name is currently running via machinectl.
 func IsRunning(name string) (bool, error) {
 	cmd := exec.Command("machinectl", "show", name, "--property=State", "--value")
+	cmd.Stderr = io.Discard
 	output, err := cmd.Output()
 	if err == nil {
 		return strings.TrimSpace(string(output)) == "running", nil
@@ -73,9 +112,10 @@ func IsRunning(name string) (bool, error) {
 	if _, ok := errors.AsType[*exec.ExitError](err); ok {
 		return false, nil
 	}
-	return false, fmt.Errorf("failed to get sandbox state with machinectl: %v", err)
+	return false, fmt.Errorf("failed to get sandbox state with machinectl: %w", err)
 }
 
+// EnsureStopped verifies that the sandbox is not running, returning an error if it is active or invalid.
 func EnsureStopped(name string) error {
 	if err := ValidateName(name); err != nil {
 		return err
@@ -98,15 +138,15 @@ func CreateSnapshot(rootfsPath, snapshotsDir, snapshotName string) error {
 	pattern := filepath.Join(snapshotsDir, snapshotName+".*.tar.zst")
 	oldSnapshots, err := filepath.Glob(pattern)
 	if err != nil {
-		return fmt.Errorf("failed to list old snapshots: %w", err)
+		return fmt.Errorf("failed to list old snapshots in %v: %w", snapshotsDir, err)
 	}
 
 	if len(oldSnapshots) > 0 {
-		input, err := util.Confirm(fmt.Sprintf("Snapshot %v already exists. Press <Enter> directly to overwrite, or Ctrl+C to cancel: ", snapshotName))
+		confirmed, err := util.Confirm(fmt.Sprintf("Snapshot %v already exists. Press <Enter> directly to overwrite, or Ctrl+C to cancel: ", snapshotName))
 		if err != nil {
 			return err
 		}
-		if input != "" {
+		if !confirmed {
 			return fmt.Errorf("user cancelled overwriting snapshot %v", snapshotName)
 		}
 	}
@@ -114,10 +154,11 @@ func CreateSnapshot(rootfsPath, snapshotsDir, snapshotName string) error {
 	snapshotPath := filepath.Join(snapshotsDir, fmt.Sprintf("%v.%v.tar.zst", snapshotName, time.Now().Format("2006-01-02T15-04-05")))
 
 	if err := Compress(rootfsPath, snapshotPath, zstd.SpeedDefault); err != nil {
-		if errCleanup := os.RemoveAll(snapshotPath); errCleanup != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to clean up %v: %v\n", snapshotPath, errCleanup)
+		if e := os.RemoveAll(snapshotPath); e != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to delete unsuccessful snapshot %v: %v\n", snapshotPath, e)
 		}
-		return fmt.Errorf("failed to create snapshot: %w", err)
+
+		return fmt.Errorf("failed to create snapshot from %v: %w", rootfsPath, err)
 	}
 
 	if err := changeOwner(snapshotPath); err != nil {
@@ -168,6 +209,7 @@ var mountPathReplacer = strings.NewReplacer(
 	`\134`, `\`,
 )
 
+// HasMounts checks /proc/self/mountinfo to determine if the given directory or any of its subdirectories are mount points.
 func HasMounts(dir string) (bool, error) {
 	// Resolve symlinks since mountinfo reports canonical paths.
 	// Fallback to Abs if it fails (e.g., the directory does not exist).
@@ -208,4 +250,36 @@ func HasMounts(dir string) (bool, error) {
 	}
 
 	return false, nil
+}
+
+// CreateSymlink safely creates or updates a symbolic link to point to the target path.
+// It returns an error if the symlinkPath exists but is not a symlink.
+func CreateSymlink(targetPath, symlinkPath string) error {
+	info, err := os.Lstat(symlinkPath)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink == 0 {
+			return fmt.Errorf("%v exists but is not a symlink", symlinkPath)
+		}
+
+		existingTarget, errReadLink := os.Readlink(symlinkPath)
+		if errReadLink != nil {
+			return fmt.Errorf("failed to read symlink %v: %w", symlinkPath, errReadLink)
+		}
+
+		if existingTarget == targetPath {
+			return nil
+		}
+
+		if errRemove := os.Remove(symlinkPath); errRemove != nil {
+			return fmt.Errorf("failed to remove existing symlink %v: %w", symlinkPath, errRemove)
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("cannot access existing %v: %w", symlinkPath, err)
+	}
+
+	if err := os.Symlink(targetPath, symlinkPath); err != nil {
+		return fmt.Errorf("failed to create symlink %v -> %v: %w", symlinkPath, targetPath, err)
+	}
+
+	return nil
 }

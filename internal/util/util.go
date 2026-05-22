@@ -32,3 +32,19 @@ func Confirm(prompt string) (bool, error) {
 func EscapeShellArg(arg string) string {
 	return fmt.Sprintf("'%v'", strings.ReplaceAll(arg, "'", "'\\''"))
 }
+
+// RequireRealDirectory verifies that path exists and is a real directory.
+// Symlinks are rejected because os.Lstat reports the symlink itself rather than
+// its target, so a symlink to a directory does not satisfy FileInfo.IsDir.
+func RequireRealDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("failed to access %v: %w", path, err)
+	}
+
+	if !info.IsDir() {
+		return fmt.Errorf("%v is not a directory", path)
+	}
+
+	return nil
+}

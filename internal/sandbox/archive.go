@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/edmonl/opqu-sandbox/internal/util"
 	"github.com/klauspost/compress/zstd"
 	"github.com/pkg/xattr"
 )
@@ -270,13 +271,5 @@ func archiveTargetPath(destDir, name string) (string, error) {
 }
 
 func requireParentDir(path string) error {
-	parent := filepath.Dir(path)
-	info, err := os.Lstat(parent)
-	if err != nil {
-		return fmt.Errorf("failed to access parent directory of %v: %w", path, err)
-	}
-	if !info.Mode().IsDir() {
-		return fmt.Errorf("parent path of %v is not a directory", path)
-	}
-	return nil
+	return util.RequireRealDirectory(filepath.Dir(path))
 }
