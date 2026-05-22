@@ -12,6 +12,10 @@ import (
 	"github.com/edmonl/opqu-sandbox/internal/util"
 )
 
+// Sudo attempts to escalate privileges to root using 'sudo' or 'su'.
+// If the current user is not root, it prompts for confirmation, then re-executes
+// the current command with the same arguments, ensuring the provided sbxDir
+// is explicitly preserved. If successful, the original unprivileged process exits.
 func Sudo(sbxDir string) error {
 	// Only escalate if not already root
 	if os.Geteuid() == 0 {
@@ -28,11 +32,11 @@ func Sudo(sbxDir string) error {
 	}
 
 	prompt := fmt.Sprintf("This operation requires to invoke %v. Press [Enter] directly to continue, or Ctrl+C to cancel: ", escalationCmd)
-	input, err := util.Confirm(prompt)
+	confirmed, err := util.Confirm(prompt)
 	if err != nil {
 		return err
 	}
-	if input != "" {
+	if !confirmed {
 		return fmt.Errorf("user cancelled invoking %v", escalationCmd)
 	}
 
@@ -78,5 +82,14 @@ func Sudo(sbxDir string) error {
 	if err == nil {
 		os.Exit(0)
 	}
-	return err
+
+	// If the command failed because it exited with a non-zero status code,
+	// the child process has already printed its error to stderr.
+	// We exit directly with the same status code to prevent Cobra from printing a redundant error.
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		os.Exit(exitErr.ExitCode())
+	}
+
+	return fmt.Errorf("failed to invoke %v: %w", escalationCmd, err)
 }
