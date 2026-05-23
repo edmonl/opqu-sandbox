@@ -46,6 +46,7 @@ func loadConfFile(path string) (map[string]string, error) {
 	return conf, nil
 }
 
+// LoadConf loads the default configuration and optional sandbox-specific configuration.
 func LoadConf(sbxDir, name string) (*Config, error) {
 	// Load default conf
 	rawConf, err := loadConfFile(filepath.Join(sbxDir, "conf", "default"))
@@ -198,6 +199,7 @@ func loadLines(path string) ([]string, error) {
 
 var packageRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9+.-]+$`)
 
+// LoadPackages loads the package list for the named sandbox.
 func LoadPackages(sbxDir, name string) ([]string, error) {
 	packagesPath := filepath.Join(sbxDir, "conf", name+".packages")
 	packages, err := loadLines(packagesPath)
@@ -216,6 +218,7 @@ func LoadPackages(sbxDir, name string) ([]string, error) {
 
 var mountRegex = regexp.MustCompile(`^([^:]*)(?::([^:]*))?(:ro)?$`)
 
+// LoadMounts loads the mount list for the named sandbox.
 func LoadMounts(sbxDir, name string, u *user.User) ([]*Mount, error) {
 	mountsPath := filepath.Join(sbxDir, "conf", name+".mounts")
 	mountLines, err := loadLines(mountsPath)
