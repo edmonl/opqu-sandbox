@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
-	"path/filepath"
 	"strings"
 
 	"github.com/edmonl/opqu-sandbox/internal/util"
@@ -40,7 +39,7 @@ func Sudo(sbxDir string) error {
 		return fmt.Errorf("user cancelled invoking %v", escalationCmd)
 	}
 
-	exe, err := filepath.Abs(os.Args[0])
+	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to resolve the executable path: %w", err)
 	}
