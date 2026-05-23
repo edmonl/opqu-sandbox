@@ -106,6 +106,17 @@ func TestArchiveHardLink(t *testing.T) {
 	}
 }
 
+func TestCompressReportsFinalizationError(t *testing.T) {
+	if _, err := os.Stat("/dev/full"); err != nil {
+		t.Skipf("/dev/full is not available: %v", err)
+	}
+
+	err := Compress(t.TempDir(), "/dev/full", zstd.SpeedDefault)
+	if err == nil {
+		t.Fatal("Compress ignored a finalization error")
+	}
+}
+
 func TestExtractRejectsParentTraversal(t *testing.T) {
 	tmpDir := t.TempDir()
 	destDir := filepath.Join(tmpDir, "dest")

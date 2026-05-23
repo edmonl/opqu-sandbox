@@ -14,24 +14,37 @@ import (
 	"github.com/edmonl/opqu-sandbox/internal/util"
 	"github.com/klauspost/compress/zstd"
 	"github.com/pkg/xattr"
+	"golang.org/x/sys/unix"
 )
 
 // Compress creates a zstd-compressed tarball of srcDir.
-func Compress(srcDir, destFile string, level zstd.EncoderLevel) error {
+func Compress(srcDir, destFile string, level zstd.EncoderLevel) (err error) {
 	f, err := os.OpenFile(destFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o666)
 	if err != nil {
 		return fmt.Errorf("failed to create destination file %v: %w", destFile, err)
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("failed to close destination file %v: %w", destFile, closeErr)
+		}
+	}()
 
 	zw, err := zstd.NewWriter(f, zstd.WithEncoderLevel(level))
 	if err != nil {
 		return fmt.Errorf("failed to create zstd writer for %v: %w", destFile, err)
 	}
-	defer zw.Close()
+	defer func() {
+		if closeErr := zw.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("failed to finalize zstd archive %v: %w", destFile, closeErr)
+		}
+	}()
 
 	tw := tar.NewWriter(zw)
-	defer tw.Close()
+	defer func() {
+		if closeErr := tw.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("failed to finalize tar archive %v: %w", destFile, closeErr)
+		}
+	}()
 
 	seenFiles := map[struct{ dev, ino uint64 }]string{}
 	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
@@ -81,8 +94,8 @@ func Compress(srcDir, destFile string, level zstd.EncoderLevel) error {
 
 			// For block/char devices
 			if info.Mode()&(os.ModeDevice|os.ModeCharDevice) != 0 {
-				header.Devmajor = int64(stat.Rdev >> 8 & 0xfff)
-				header.Devminor = int64(stat.Rdev & 0xff)
+				header.Devmajor = int64(unix.Major(stat.Rdev))
+				header.Devminor = int64(unix.Minor(stat.Rdev))
 			}
 		}
 
@@ -219,7 +232,7 @@ func Extract(srcFile, destDir string) error {
 			} else {
 				mode |= syscall.S_IFBLK
 			}
-			dev := int(header.Devmajor<<8 | header.Devminor)
+			dev := int(unix.Mkdev(uint32(header.Devmajor), uint32(header.Devminor)))
 			if err := syscall.Mknod(target, mode, dev); err != nil {
 				return fmt.Errorf("failed to create device %v: %w", target, err)
 			}
