@@ -5,7 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/klauspost/compress/zstd"
 )
@@ -228,12 +230,69 @@ func TestExtractRejectsFileUnderSymlinkParent(t *testing.T) {
 	}
 }
 
+func TestExtractRestoresDirectoryMetadataAfterChildren(t *testing.T) {
+	tmpDir := t.TempDir()
+	destDir := filepath.Join(tmpDir, "dest")
+	archiveFile := filepath.Join(tmpDir, "archive.tar.zst")
+	dirModTime := time.Unix(946684800, 0)
+
+	writeTestArchive(t, archiveFile, []testArchiveEntry{
+		{
+			name:     "dir",
+			typeflag: tar.TypeDir,
+			mode:     0o711,
+			modTime:  dirModTime,
+		},
+		{
+			name: "dir/file",
+			body: "data",
+			mode: 0o644,
+		},
+	})
+
+	if err := Extract(archiveFile, destDir); err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	info, err := os.Stat(filepath.Join(destDir, "dir"))
+	if err != nil {
+		t.Fatalf("failed to stat extracted directory: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o711 {
+		t.Fatalf("directory mode = %v, want %v", got, os.FileMode(0o711))
+	}
+	if got := info.ModTime(); !got.Equal(dirModTime) {
+		t.Fatalf("directory mtime = %v, want %v", got, dirModTime)
+	}
+}
+
+func TestExtractRejectsUnsupportedEntryType(t *testing.T) {
+	tmpDir := t.TempDir()
+	destDir := filepath.Join(tmpDir, "dest")
+	archiveFile := filepath.Join(tmpDir, "archive.tar.zst")
+
+	writeTestArchive(t, archiveFile, []testArchiveEntry{{
+		name:     "unsupported",
+		typeflag: 'X',
+		mode:     0o644,
+	}})
+
+	err := Extract(archiveFile, destDir)
+	if err == nil {
+		t.Fatal("Extract accepted an unsupported entry type")
+	}
+	if !strings.Contains(err.Error(), "unsupported tar entry type") {
+		t.Fatalf("Extract returned %q, want unsupported-entry-type error", err)
+	}
+}
+
 type testArchiveEntry struct {
 	name     string
 	body     string
 	linkname string
 	typeflag byte
 	mode     int64
+	modTime  time.Time
 }
 
 func writeTestArchive(t *testing.T, archiveFile string, entries []testArchiveEntry) {
@@ -263,6 +322,9 @@ func writeTestArchive(t *testing.T, archiveFile string, entries []testArchiveEnt
 			Size:     int64(len(entry.body)),
 			Typeflag: typeflag,
 			Linkname: entry.linkname,
+			ModTime:  entry.modTime,
+			Uid:      os.Getuid(),
+			Gid:      os.Getgid(),
 		}
 		if typeflag != tar.TypeReg {
 			header.Size = 0

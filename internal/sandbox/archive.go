@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -168,6 +169,7 @@ func Extract(srcFile, destDir string) error {
 	defer zr.Close()
 
 	tr := tar.NewReader(zr)
+	var dirs []dirMetadata
 
 	for {
 		header, err := tr.Next()
@@ -188,22 +190,26 @@ func Extract(srcFile, destDir string) error {
 			if err := requireParentDir(target); err != nil {
 				return fmt.Errorf("failed to extract directory %v: %w", header.Name, err)
 			}
-			if err := os.Mkdir(target, os.FileMode(header.Mode)); err != nil {
+			if err := os.Mkdir(target, os.FileMode(header.Mode)|0o700); err != nil {
 				return fmt.Errorf("failed to create directory %v: %w", target, err)
 			}
+			dirs = append(dirs, dirMetadata{target: target, header: *header})
+			continue
 		case tar.TypeReg:
 			if err := requireParentDir(target); err != nil {
 				return fmt.Errorf("failed to extract regular file %v: %w", header.Name, err)
 			}
-			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode))
+			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode))
 			if err != nil {
 				return fmt.Errorf("failed to create regular file %v: %w", target, err)
 			}
-			if _, err := io.Copy(f, tr); err != nil {
-				f.Close()
+			if _, err := io.Copy(out, tr); err != nil {
+				out.Close()
 				return fmt.Errorf("failed to write regular file %v: %w", target, err)
 			}
-			f.Close()
+			if err := out.Close(); err != nil {
+				return fmt.Errorf("failed to close regular file %v: %w", target, err)
+			}
 		case tar.TypeSymlink:
 			if err := requireParentDir(target); err != nil {
 				return fmt.Errorf("failed to extract symlink %v: %w", header.Name, err)
@@ -243,26 +249,51 @@ func Extract(srcFile, destDir string) error {
 			if err := syscall.Mkfifo(target, uint32(header.Mode)); err != nil {
 				return fmt.Errorf("failed to create fifo %v: %w", target, err)
 			}
+		default:
+			return fmt.Errorf("unsupported tar entry type %v for %v", header.Typeflag, header.Name)
 		}
 
-		// Restore ownership
-		if err := os.Lchown(target, header.Uid, header.Gid); err != nil {
-			return fmt.Errorf("failed to restore ownership for %v: %w", target, err)
+		if err := restoreArchiveMetadata(target, header); err != nil {
+			return err
 		}
+	}
 
-		// Restore timestamps (not for symlinks as os.Chtimes follows them)
-		if header.Typeflag != tar.TypeSymlink {
-			if err := os.Chtimes(target, header.AccessTime, header.ModTime); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to restore timestamps for %v: %v\n", target, err)
-			}
+	// Restore directories after all entries are extracted. Archive order only
+	// guarantees parents before children, not depth-first traversal, so a later
+	// child entry may still update an earlier directory's metadata.
+	for _, dir := range slices.Backward(dirs) {
+		if err := restoreArchiveMetadata(dir.target, &dir.header); err != nil {
+			return err
 		}
+		if err := os.Chmod(dir.target, os.FileMode(dir.header.Mode)); err != nil {
+			return fmt.Errorf("failed to restore mode for directory %v: %w", dir.target, err)
+		}
+	}
 
-		// Restore xattrs
-		for key, val := range header.PAXRecords {
-			if attrName, ok := strings.CutPrefix(key, "SCHILY.xattr."); ok {
-				if err := xattr.LSet(target, attrName, []byte(val)); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to restore xattr %v for %v: %v\n", attrName, target, err)
-				}
+	return nil
+}
+
+type dirMetadata struct {
+	target string
+	header tar.Header
+}
+
+func restoreArchiveMetadata(target string, header *tar.Header) error {
+	if err := os.Lchown(target, header.Uid, header.Gid); err != nil {
+		return fmt.Errorf("failed to restore ownership for %v: %w", target, err)
+	}
+
+	// os.Chtimes follows symlinks.
+	if header.Typeflag != tar.TypeSymlink {
+		if err := os.Chtimes(target, header.AccessTime, header.ModTime); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to restore timestamps for %v: %v\n", target, err)
+		}
+	}
+
+	for key, val := range header.PAXRecords {
+		if attrName, ok := strings.CutPrefix(key, "SCHILY.xattr."); ok {
+			if err := xattr.LSet(target, attrName, []byte(val)); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to restore xattr %v for %v: %v\n", attrName, target, err)
 			}
 		}
 	}
