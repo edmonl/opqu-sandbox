@@ -30,27 +30,17 @@ func ValidateName(name string) error {
 	return fmt.Errorf("sandbox name %v is invalid, must be lowercase alphanumeric and hyphens only", name)
 }
 
-// RunCmd executes a command with the provided arguments, binding its standard streams to the parent process.
-// Raw errors are returned.
-func RunCmd(cmd string, args ...string) error {
-	execCmd := exec.Command(cmd, args...)
-	execCmd.Stdin = os.Stdin
-	execCmd.Stdout = os.Stdout
-	execCmd.Stderr = os.Stderr
-	return execCmd.Run()
-}
-
 // ReplaceRootfs replaces an existing root filesystem by extracting a new archive.
 // It creates a backup of the current rootfs, extracts the archive, and restores the backup if extraction fails.
 func ReplaceRootfs(rootfsPath, archivePath string) error {
-	if rootfsExists, err := requireInactiveRootfs(rootfsPath); err != nil {
+	if rootfsExists, err := RequireInactiveRootfs(rootfsPath); err != nil {
 		return err
 	} else if !rootfsExists {
 		return fmt.Errorf("%v is missing", rootfsPath)
 	}
 
 	bakPath := rootfsPath + ".bak"
-	if bakExists, err := requireInactiveRootfs(bakPath); err != nil {
+	if bakExists, err := RequireInactiveRootfs(bakPath); err != nil {
 		return err
 	} else if bakExists {
 		if err := os.RemoveAll(bakPath); err != nil {
@@ -82,8 +72,9 @@ func ReplaceRootfs(rootfsPath, archivePath string) error {
 	return nil
 }
 
+// RequireInactiveRootfs verifies that path is missing or a real directory without active mounts.
 // The returned bool indicates whether the rootfs exists.
-func requireInactiveRootfs(path string) (bool, error) {
+func RequireInactiveRootfs(path string) (bool, error) {
 	if err := util.RequireRealDirectory(path); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return false, nil

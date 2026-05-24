@@ -75,15 +75,15 @@ var createCmd = &cobra.Command{
 
 			hasMounts, err := sandbox.HasMounts(sandboxFs)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to clean up %v: %v\n", sandboxFs, err)
+				util.Warn("failed to clean up %v: %v", sandboxFs, err)
 				return
 			}
 			if hasMounts {
-				fmt.Fprintf(os.Stderr, "Warning: failed to clean up %v: active mounts detected\n", sandboxFs)
+				util.Warn("failed to clean up %v: active mounts detected", sandboxFs)
 				return
 			}
 			if err := os.RemoveAll(sandboxFs); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to clean up %v: %v\n", sandboxFs, err)
+				util.Warn("failed to clean up %v: %v", sandboxFs, err)
 			}
 		}()
 
@@ -101,7 +101,7 @@ var createCmd = &cobra.Command{
 			}
 
 			mmdebstrapArgs = append(mmdebstrapArgs, conf.Distro, sandboxFs, conf.Mirror)
-			if err := sandbox.RunCmd("mmdebstrap", mmdebstrapArgs...); err != nil {
+			if err := util.RunCmd("mmdebstrap", mmdebstrapArgs...); err != nil {
 				return fmt.Errorf("provisioning sandbox %v with mmdebstrap failed: %w", name, err)
 			}
 		} else if _, err := exec.LookPath("debootstrap"); err == nil {
@@ -114,7 +114,7 @@ var createCmd = &cobra.Command{
 			}
 
 			debootstrapArgs = append(debootstrapArgs, conf.Distro, sandboxFs, conf.Mirror)
-			if err := sandbox.RunCmd("debootstrap", debootstrapArgs...); err != nil {
+			if err := util.RunCmd("debootstrap", debootstrapArgs...); err != nil {
 				return fmt.Errorf("provisioning sandbox %v with debootstrap failed: %w", name, err)
 			}
 
@@ -123,12 +123,12 @@ var createCmd = &cobra.Command{
 		}
 
 		// Provision sandbox user.
-		if err := sandbox.RunCmd("chroot", sandboxFs, "/bin/sh", "-c", getSetupScript(conf)); err != nil {
+		if err := util.RunCmd("chroot", sandboxFs, "/bin/sh", "-c", getSetupScript(conf)); err != nil {
 			return fmt.Errorf("failed to provision sandbox: %w", err)
 		}
 
 		// Enable networking
-		if err := sandbox.RunCmd("chroot", sandboxFs, "systemctl", "enable", "systemd-networkd"); err != nil {
+		if err := util.RunCmd("chroot", sandboxFs, "systemctl", "enable", "systemd-networkd"); err != nil {
 			return fmt.Errorf("failed to enable systemd-networkd: %w", err)
 		}
 
@@ -138,7 +138,7 @@ var createCmd = &cobra.Command{
 
 		// Clean up apt partial directory to prevent permission errors for unprivileged users
 		if err := os.RemoveAll(filepath.Join(pkgCache, "partial")); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to delete pkg-cache/partial: %v\n", err)
+			util.Warn("failed to delete pkg-cache/partial: %v", err)
 		}
 
 		if err := sandbox.CreateSymlink(sandboxFs, filepath.Join(conf.ImagesPath, name)); err != nil {
@@ -147,7 +147,7 @@ var createCmd = &cobra.Command{
 		createSuccess = true
 
 		if err := sandbox.CreateSnapshot(sandboxFs, snapshotsDir, "base"); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to create base snapshot: %v\n", err)
+			util.Warn("failed to create base snapshot: %v", err)
 		}
 
 		return nil

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 )
 
@@ -31,6 +32,34 @@ func Confirm(prompt string) (bool, error) {
 // Warn writes a formatted warning message to stderr.
 func Warn(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "Warning: "+format+"\n", args...)
+}
+
+// RunCmd executes a command with the provided arguments, binding its standard streams to the parent process.
+// Raw errors are returned.
+func RunCmd(cmd string, args ...string) error {
+	execCmd := exec.Command(cmd, args...)
+	execCmd.Stdin = os.Stdin
+	execCmd.Stdout = os.Stdout
+	execCmd.Stderr = os.Stderr
+	return execCmd.Run()
+}
+
+// CheckSymlinkTarget reports whether path is a symlink pointing exactly to wantTarget.
+func CheckSymlinkTarget(path, wantTarget string) (bool, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false, fmt.Errorf("failed to access %v: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return false, fmt.Errorf("%v is not a symlink", path)
+	}
+
+	target, err := os.Readlink(path)
+	if err != nil {
+		return false, fmt.Errorf("failed to read symlink %v: %w", path, err)
+	}
+
+	return target == wantTarget, nil
 }
 
 // EscapeShellArg wraps a string in single quotes, safely escaping any internal single quotes for shell execution.

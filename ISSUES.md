@@ -4,38 +4,45 @@
 
 1. Snapshots should reject active mounts before archiving a rootfs.
 
-   `CreateSnapshot` calls `Compress` on the rootfs without checking `HasMounts`.
-   If a stopped sandbox still has a bind mount or other active mount under its
-   rootfs, snapshot creation can archive host-mounted content into the snapshot.
-   This should be guarded before walking the rootfs, similar to restore/delete
-   mount checks.
+   `CreateSnapshot` compresses the rootfs without checking `HasMounts`. A stopped
+   sandbox can still have active mounts under its rootfs, which could archive host
+   content. Guard this before walking the rootfs, as restore/delete do.
 
 2. `CreateSnapshot` should validate `snapshotName` internally.
 
-   The CLI validates snapshot names, but `CreateSnapshot` itself builds glob and
-   output paths directly from `snapshotName`. An unsafe future internal caller
-   could use path separators to write outside `snapshotsDir` or make the old
-   snapshot cleanup glob match paths outside the intended snapshot directory.
+   The CLI validates snapshot names, but `CreateSnapshot` builds glob and output
+   paths directly from `snapshotName`. A future internal caller could use path
+   separators to write or clean up outside `snapshotsDir`.
 
 ## Minor Issues
 
 ## Ignored Issues
 
-1. `requireInactiveRootfs` could wrap `HasMounts` errors with restore-specific
+1. `RequireInactiveRootfs` could wrap `HasMounts` errors with operation-specific
    context.
 
-   This would improve diagnostics, but the current raw error still preserves the
-   underlying failure and does not affect behavior.
+   This would improve diagnostics, but the raw error preserves the failure and
+   does not affect behavior.
 
 2. `loadLines` deduplicates via a map, so package and mount line order is not
    stable.
 
-   This is acceptable for package lists because apt handles dependencies. Mount
-   ordering is not currently treated as meaningful by the configuration model.
+   This is acceptable because apt handles package dependencies, and mount order is
+   not currently meaningful.
 
 3. Port mappings should validate numeric ranges.
 
-   `internal/config/config.go` validates the shape of `PORTS`, but it does not
-   reject ports outside `1..65535`. Invalid values are deferred to
-   `systemd-nspawn` startup errors instead of being caught during configuration
-   loading.
+   `PORTS` shape is validated, but values outside `1..65535` are left for
+   `systemd-nspawn` to reject at startup.
+
+4. `sbx delete` runs `machinectl remove` before removing the image symlink.
+
+   Removing the symlink first would likely make the image undiscoverable. The
+   current flow verifies the image symlink target before calling `machinectl`, so
+   any resolved rootfs removal stays within the sandbox-managed path.
+
+5. `sbx delete` does not warn when the nspawn symlink is missing.
+
+   Missing runtime nspawn symlinks are acceptable: `sbx up` may not have
+   completed, `sbx down` may have removed them, or a user may have cleaned them.
+   Suspicious existing symlinks still warn and are left untouched.
