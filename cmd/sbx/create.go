@@ -94,8 +94,6 @@ var createCmd = &cobra.Command{
 				"--setup-hook=mkdir -p \"$1/var/cache/apt/archives/\"",
 				"--setup-hook=" + fmt.Sprintf("sync-in %q /var/cache/apt/archives/", pkgCache),
 				"--customize-hook=" + fmt.Sprintf("sync-out /var/cache/apt/archives %q", pkgCache),
-				"--customize-hook=" + fmt.Sprintf(`chroot "$1" /bin/sh -c %q`, getSetupScript(conf)),
-				"--customize-hook=" + `chroot "$1" systemctl enable systemd-networkd`,
 			}
 
 			if len(packages) > 0 {
@@ -120,17 +118,18 @@ var createCmd = &cobra.Command{
 				return fmt.Errorf("provisioning sandbox %v with debootstrap failed: %w", name, err)
 			}
 
-			// Provision sandbox user.
-			if err := sandbox.RunCmd("chroot", sandboxFs, "/bin/sh", "-c", getSetupScript(conf)); err != nil {
-				return fmt.Errorf("failed to provision sandbox: %w", err)
-			}
-
-			// Enable networking
-			if err := sandbox.RunCmd("chroot", sandboxFs, "systemctl", "enable", "systemd-networkd"); err != nil {
-				return fmt.Errorf("failed to enable systemd-networkd: %w", err)
-			}
 		} else {
 			return fmt.Errorf("neither mmdebstrap nor debootstrap found in PATH")
+		}
+
+		// Provision sandbox user.
+		if err := sandbox.RunCmd("chroot", sandboxFs, "/bin/sh", "-c", getSetupScript(conf)); err != nil {
+			return fmt.Errorf("failed to provision sandbox: %w", err)
+		}
+
+		// Enable networking
+		if err := sandbox.RunCmd("chroot", sandboxFs, "systemctl", "enable", "systemd-networkd"); err != nil {
+			return fmt.Errorf("failed to enable systemd-networkd: %w", err)
 		}
 
 		if err := writeSandboxFiles(sandboxFs, name); err != nil {
