@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +17,7 @@ import (
 
 var createCmd = &cobra.Command{
 	Use:   "create [name]",
-	Short: "Create rootfs for a new sandbox and save its clean base image",
+	Short: "Create rootfs for a new sandbox",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -24,50 +26,64 @@ var createCmd = &cobra.Command{
 		}
 
 		// create those dirs with current user
-		snapshotsDir := filepath.Join(sbxDir, "snapshots", name)
-		if err := os.MkdirAll(snapshotsDir, 0o755); err != nil {
-			return fmt.Errorf("failed to create snapshots directory %v: %w", snapshotsDir, err)
-		}
-		pkgCache := filepath.Join(sbxDir, "pkg-cache")
-		if err := os.MkdirAll(pkgCache, 0o755); err != nil {
-			return fmt.Errorf("failed to create pkg-cache directory %v: %w", pkgCache, err)
-		}
-
-		if err := sandbox.Sudo(sbxDir); err != nil {
+		rootfsDir, err := createDir(sbxDir, "rootfs")
+		if err != nil {
 			return err
 		}
-
-		conf, err := config.LoadConf(sbxDir, name)
+		snapshotsDir, err := createDir(sbxDir, "snapshots", name)
+		if err != nil {
+			return err
+		}
+		pkgCache, err := createDir(sbxDir, "pkg-cache")
 		if err != nil {
 			return err
 		}
 
+		// sudo
+		if e := sandbox.Sudo(sbxDir); e != nil {
+			return e
+		}
+
+		// conf
+		conf, err := config.LoadConf(sbxDir, name)
+		if err != nil {
+			return err
+		}
 		packages, err := config.LoadPackages(sbxDir, name)
 		if err != nil {
 			return err
 		}
 
-		sandboxFs := filepath.Join(conf.ImagePath, name)
-		if _, err := os.Stat(sandboxFs); err == nil {
-			return fmt.Errorf("sandbox rootfs %v already exists", sandboxFs)
-		}
-		if err := os.MkdirAll(sandboxFs, 0o755); err != nil {
-			return fmt.Errorf("failed to create rootfs directory %v: %w", sandboxFs, err)
+		// check
+		if err := os.MkdirAll(conf.ImagesPath, 0o700); err != nil {
+			return fmt.Errorf("failed to create images directory %v: %w", conf.ImagesPath, err)
 		}
 
-		var provisionSuccess bool
+		sandboxFs := filepath.Join(rootfsDir, name)
+		if err := os.Mkdir(sandboxFs, 0o755); err != nil {
+			if errors.Is(err, fs.ErrExist) {
+				return fmt.Errorf("sandbox rootfs %v already exists", sandboxFs)
+			}
+			return fmt.Errorf("failed to create sandbox rootfs directory %v: %w", sandboxFs, err)
+		}
+
+		var createSuccess bool
 		defer func() {
-			if !provisionSuccess {
-				hasMounts, err := sandbox.HasMounts(sandboxFs)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: Failed to check for active mounts in %v: %v. Skipping automatic cleanup for safety. Please clean up manually.\n", sandboxFs, err)
-					return
-				}
-				if hasMounts {
-					fmt.Fprintf(os.Stderr, "Warning: Active mounts detected in %v. Skipping automatic cleanup to prevent host system damage. Please unmount manually.\n", sandboxFs)
-					return
-				}
-				os.RemoveAll(sandboxFs)
+			if createSuccess {
+				return
+			}
+
+			hasMounts, err := sandbox.HasMounts(sandboxFs)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to clean up %v: %v\n", sandboxFs, err)
+				return
+			}
+			if hasMounts {
+				fmt.Fprintf(os.Stderr, "Warning: failed to clean up %v: active mounts detected\n", sandboxFs)
+				return
+			}
+			if err := os.RemoveAll(sandboxFs); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to clean up %v: %v\n", sandboxFs, err)
 			}
 		}()
 
@@ -78,7 +94,7 @@ var createCmd = &cobra.Command{
 				"--setup-hook=mkdir -p \"$1/var/cache/apt/archives/\"",
 				"--setup-hook=" + fmt.Sprintf("sync-in %q /var/cache/apt/archives/", pkgCache),
 				"--customize-hook=" + fmt.Sprintf("sync-out /var/cache/apt/archives %q", pkgCache),
-				"--customize-hook=" + fmt.Sprintf(`chroot "$1" /bin/sh -c %q`, getSetupScript(name, conf)),
+				"--customize-hook=" + fmt.Sprintf(`chroot "$1" /bin/sh -c %q`, getSetupScript(conf)),
 				"--customize-hook=" + `chroot "$1" systemctl enable systemd-networkd`,
 			}
 
@@ -87,7 +103,6 @@ var createCmd = &cobra.Command{
 			}
 
 			mmdebstrapArgs = append(mmdebstrapArgs, conf.Distro, sandboxFs, conf.Mirror)
-
 			if err := sandbox.RunCmd("mmdebstrap", mmdebstrapArgs...); err != nil {
 				return fmt.Errorf("provisioning sandbox %v with mmdebstrap failed: %w", name, err)
 			}
@@ -101,13 +116,12 @@ var createCmd = &cobra.Command{
 			}
 
 			debootstrapArgs = append(debootstrapArgs, conf.Distro, sandboxFs, conf.Mirror)
-
 			if err := sandbox.RunCmd("debootstrap", debootstrapArgs...); err != nil {
 				return fmt.Errorf("provisioning sandbox %v with debootstrap failed: %w", name, err)
 			}
 
-			// Provision sandbox: hostname, hosts, and user
-			if err := sandbox.RunCmd("chroot", sandboxFs, "/bin/sh", "-c", getSetupScript(name, conf)); err != nil {
+			// Provision sandbox user.
+			if err := sandbox.RunCmd("chroot", sandboxFs, "/bin/sh", "-c", getSetupScript(conf)); err != nil {
 				return fmt.Errorf("failed to provision sandbox: %w", err)
 			}
 
@@ -119,47 +133,79 @@ var createCmd = &cobra.Command{
 			return fmt.Errorf("neither mmdebstrap nor debootstrap found in PATH")
 		}
 
-		// Clean up apt partial directory to prevent permission errors for unprivileged users
-		os.RemoveAll(filepath.Join(pkgCache, "partial"))
-
-		provisionSuccess = true
-
-		if err := sandbox.CreateSnapshot(sandboxFs, snapshotsDir, "base"); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to create base snapshot: %v", err)
+		if err := writeSandboxFiles(sandboxFs, name); err != nil {
+			return err
 		}
 
-		fmt.Printf("Successfully created sandbox %v\n", name)
+		// Clean up apt partial directory to prevent permission errors for unprivileged users
+		if err := os.RemoveAll(filepath.Join(pkgCache, "partial")); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to delete pkg-cache/partial: %v\n", err)
+		}
+
+		if err := sandbox.CreateSymlink(sandboxFs, filepath.Join(conf.ImagesPath, name)); err != nil {
+			return fmt.Errorf("failed to create sandbox image symlink: %w", err)
+		}
+		createSuccess = true
+
+		if err := sandbox.CreateSnapshot(sandboxFs, snapshotsDir, "base"); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to create base snapshot: %v\n", err)
+		}
+
 		return nil
 	},
 }
 
-func getSetupScript(name string, conf *config.Config) string {
-	var rootAction string
-	if conf.RootPassword == "" {
-		rootAction = "passwd -l root"
-	} else {
-		rootAction = fmt.Sprintf("printf '%%s\\n' 'root:'%v | chpasswd", util.EscapeShellArg(conf.RootPassword))
-	}
+func getSetupScript(conf *config.Config) string {
+	commands := []string{"set -e"}
 
 	uid := conf.SandboxUser.Uid
-	userName := conf.SandboxUser.Username
-	var createUserCmd string
-	if uid == "0" {
-		createUserCmd = rootAction
-	} else {
-		escapedUserName := util.EscapeShellArg(userName)
-		createUserCmd = fmt.Sprintf("useradd -m -u %v -s /bin/bash %v && %v && passwd -l %v", uid, escapedUserName, rootAction, escapedUserName)
+	if uid != "0" {
+		gid := conf.SandboxUser.Gid
+		escapedUserName := util.EscapeShellArg(conf.SandboxUser.Username)
+		commands = append(commands,
+			fmt.Sprintf("groupadd -g %v %v", gid, escapedUserName),
+			fmt.Sprintf("useradd -m -u %v -g %v -s /bin/bash %v", uid, gid, escapedUserName),
+			fmt.Sprintf("passwd -l %v", escapedUserName),
+		)
 	}
 
-	// Set hostname and basic /etc/hosts
-	hostnameCmd := fmt.Sprintf("printf '%%s\\n' %v > /etc/hostname", util.EscapeShellArg(name))
-	hostsCmd := fmt.Sprintf("printf '127.0.0.1\\tlocalhost\\n127.0.1.1\\t%%s\\n\\n# The following lines are desirable for IPv6 capable hosts\\n::1\\tlocalhost ip6-localhost ip6-loopback\\nff02::1\\tip6-allnodes\\nff02::2\\tip6-allrouters\\n' %v > /etc/hosts", util.EscapeShellArg(name))
+	if conf.RootPassword == "" {
+		commands = append(commands, "passwd -l root")
+	} else {
+		commands = append(commands, fmt.Sprintf("printf '%%s\\n' 'root:'%v | chpasswd", util.EscapeShellArg(conf.RootPassword)))
+	}
 
-	return fmt.Sprintf("%v && %v && %v", hostnameCmd, hostsCmd, createUserCmd)
+	return strings.Join(commands, "\n")
 }
 
-func init() {
-	rootCmd.AddCommand(createCmd)
+func writeSandboxFiles(rootfsPath, name string) error {
+	hostnamePath := filepath.Join(rootfsPath, "etc", "hostname")
+	if err := os.WriteFile(hostnamePath, []byte(name+"\n"), 0o644); err != nil {
+		return fmt.Errorf("failed to write %v: %w", hostnamePath, err)
+	}
+
+	hostsPath := filepath.Join(rootfsPath, "etc", "hosts")
+	hosts := fmt.Sprintf(`127.0.0.1	localhost
+127.0.1.1	%v
+
+# The following lines are desirable for IPv6 capable hosts
+::1	localhost ip6-localhost ip6-loopback
+ff02::1	ip6-allnodes
+ff02::2	ip6-allrouters
+`, name)
+	if err := os.WriteFile(hostsPath, []byte(hosts), 0o644); err != nil {
+		return fmt.Errorf("failed to write %v: %w", hostsPath, err)
+	}
+
+	return nil
+}
+
+func createDir(elem ...string) (string, error) {
+	path := filepath.Join(elem...)
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create directory %v: %w", path, err)
+	}
+	return path, nil
 }
 
 func init() {

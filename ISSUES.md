@@ -19,6 +19,8 @@
 
 ## Minor Issues
 
+1. Write a `Warn` function in `util` to issue warnings.
+
 ## Ignored Issues
 
 1. `requireInactiveRootfs` could wrap `HasMounts` errors with restore-specific
