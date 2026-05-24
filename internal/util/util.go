@@ -28,6 +28,11 @@ func Confirm(prompt string) (bool, error) {
 	return strings.TrimRight(input, "\r\n") == "", nil
 }
 
+// Warn writes a formatted warning message to stderr.
+func Warn(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "Warning: "+format+"\n", args...)
+}
+
 // EscapeShellArg wraps a string in single quotes, safely escaping any internal single quotes for shell execution.
 func EscapeShellArg(arg string) string {
 	return fmt.Sprintf("'%v'", strings.ReplaceAll(arg, "'", "'\\''"))

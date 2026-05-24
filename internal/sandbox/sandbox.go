@@ -66,9 +66,9 @@ func ReplaceRootfs(rootfsPath, archivePath string) error {
 	if err := Extract(archivePath, rootfsPath); err != nil {
 		// Restore backup on failure
 		if e := os.RemoveAll(rootfsPath); e != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to restore backup %v: failed to delete unsuccessful extraction result %v: %v\n", bakPath, rootfsPath, e)
+			util.Warn("failed to restore backup %v: failed to delete unsuccessful extraction result %v: %v", bakPath, rootfsPath, e)
 		} else if e := os.Rename(bakPath, rootfsPath); e != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to restore backup %v to %v: %v\n", bakPath, rootfsPath, e)
+			util.Warn("failed to restore backup %v to %v: %v", bakPath, rootfsPath, e)
 		}
 
 		return fmt.Errorf("failed to extract %v: %w", archivePath, err)
@@ -76,7 +76,7 @@ func ReplaceRootfs(rootfsPath, archivePath string) error {
 
 	// Cleanup backup on success
 	if err := os.RemoveAll(bakPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to delete backup %v: %v\n", bakPath, err)
+		util.Warn("failed to delete backup %v: %v", bakPath, err)
 	}
 
 	return nil
@@ -155,20 +155,20 @@ func CreateSnapshot(rootfsPath, snapshotsDir, snapshotName string) error {
 
 	if err := Compress(rootfsPath, snapshotPath, zstd.SpeedDefault); err != nil {
 		if e := os.RemoveAll(snapshotPath); e != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to delete unsuccessful snapshot %v: %v\n", snapshotPath, e)
+			util.Warn("failed to delete unsuccessful snapshot %v: %v", snapshotPath, e)
 		}
 
 		return fmt.Errorf("failed to create snapshot from %v: %w", rootfsPath, err)
 	}
 
 	if err := changeOwner(snapshotPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to change ownership of %v: %v\n", snapshotPath, err)
+		util.Warn("failed to change ownership of %v: %v", snapshotPath, err)
 	}
 
 	for _, old := range oldSnapshots {
 		if old != snapshotPath {
 			if err := os.RemoveAll(old); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to remove old snapshot %v: %v\n", old, err)
+				util.Warn("failed to remove old snapshot %v: %v", old, err)
 			}
 		}
 	}

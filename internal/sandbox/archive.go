@@ -109,13 +109,13 @@ func Compress(srcDir, destFile string, level zstd.EncoderLevel) (err error) {
 			for _, attr := range xattrs {
 				val, err := xattr.LGet(path, attr)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to read xattr %v for %v: %v\n", attr, path, err)
+					util.Warn("failed to read xattr %v for %v: %v", attr, path, err)
 					continue
 				}
 				header.PAXRecords["SCHILY.xattr."+attr] = string(val)
 			}
 		} else if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to list xattrs for %v: %v\n", path, err)
+			util.Warn("failed to list xattrs for %v: %v", path, err)
 		}
 
 		if err := tw.WriteHeader(header); err != nil {
@@ -286,14 +286,14 @@ func restoreArchiveMetadata(target string, header *tar.Header) error {
 	// os.Chtimes follows symlinks.
 	if header.Typeflag != tar.TypeSymlink {
 		if err := os.Chtimes(target, header.AccessTime, header.ModTime); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to restore timestamps for %v: %v\n", target, err)
+			util.Warn("failed to restore timestamps for %v: %v", target, err)
 		}
 	}
 
 	for key, val := range header.PAXRecords {
 		if attrName, ok := strings.CutPrefix(key, "SCHILY.xattr."); ok {
 			if err := xattr.LSet(target, attrName, []byte(val)); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to restore xattr %v for %v: %v\n", attrName, target, err)
+				util.Warn("failed to restore xattr %v for %v: %v", attrName, target, err)
 			}
 		}
 	}

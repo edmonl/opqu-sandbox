@@ -1,8 +1,37 @@
 package util
 
 import (
+	"io"
+	"os"
 	"testing"
 )
+
+func TestWarn(t *testing.T) {
+	oldStderr := os.Stderr
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	os.Stderr = writeEnd
+	defer func() {
+		os.Stderr = oldStderr
+		readEnd.Close()
+		writeEnd.Close()
+	}()
+
+	Warn("failed to do %v: %v", "thing", "reason")
+	if err := writeEnd.Close(); err != nil {
+		t.Fatalf("failed to close write end: %v", err)
+	}
+
+	output, err := io.ReadAll(readEnd)
+	if err != nil {
+		t.Fatalf("failed to read warning output: %v", err)
+	}
+	if got, want := string(output), "Warning: failed to do thing: reason\n"; got != want {
+		t.Fatalf("Warn output = %q, want %q", got, want)
+	}
+}
 
 func TestEscapeShellArg(t *testing.T) {
 	tests := []struct {
