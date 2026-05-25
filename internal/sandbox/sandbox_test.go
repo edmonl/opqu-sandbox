@@ -3,6 +3,7 @@ package sandbox
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/klauspost/compress/zstd"
@@ -188,5 +189,87 @@ func TestReplaceRootfsWithoutExistingBackup(t *testing.T) {
 	}
 	if _, err := os.Stat(rootfsPath + ".bak"); !os.IsNotExist(err) {
 		t.Fatalf("backup still exists after successful restore: %v", err)
+	}
+}
+
+func TestCreateSnapshotRejectsNonDirectoryRootfs(t *testing.T) {
+	tmpDir := t.TempDir()
+	rootfsPath := filepath.Join(tmpDir, "rootfs")
+	snapshotsDir := filepath.Join(tmpDir, "snapshots")
+
+	if err := os.WriteFile(rootfsPath, []byte("not a directory"), 0o644); err != nil {
+		t.Fatalf("failed to create rootfs file: %v", err)
+	}
+	if err := os.Mkdir(snapshotsDir, 0o755); err != nil {
+		t.Fatalf("failed to create snapshots directory: %v", err)
+	}
+
+	err := CreateSnapshot(rootfsPath, snapshotsDir, "test")
+	if err == nil {
+		t.Fatal("CreateSnapshot accepted a non-directory rootfs")
+	}
+	if !strings.Contains(err.Error(), "is not a directory") {
+		t.Fatalf("CreateSnapshot error = %q, want non-directory error", err)
+	}
+
+	entries, err := os.ReadDir(snapshotsDir)
+	if err != nil {
+		t.Fatalf("failed to read snapshots directory: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("CreateSnapshot wrote archive output after source rejection: %v", entries)
+	}
+}
+
+func TestCreateSnapshotRejectsSymlinkRootfs(t *testing.T) {
+	tmpDir := t.TempDir()
+	targetPath := filepath.Join(tmpDir, "target")
+	rootfsPath := filepath.Join(tmpDir, "rootfs")
+	snapshotsDir := filepath.Join(tmpDir, "snapshots")
+
+	if err := os.Mkdir(targetPath, 0o755); err != nil {
+		t.Fatalf("failed to create target directory: %v", err)
+	}
+	if err := os.Symlink(targetPath, rootfsPath); err != nil {
+		t.Fatalf("failed to create rootfs symlink: %v", err)
+	}
+	if err := os.Mkdir(snapshotsDir, 0o755); err != nil {
+		t.Fatalf("failed to create snapshots directory: %v", err)
+	}
+
+	err := CreateSnapshot(rootfsPath, snapshotsDir, "test")
+	if err == nil {
+		t.Fatal("CreateSnapshot accepted a symlink rootfs")
+	}
+	if !strings.Contains(err.Error(), "is not a directory") {
+		t.Fatalf("CreateSnapshot error = %q, want non-directory error", err)
+	}
+}
+
+func TestCreateSnapshotArchivesInactiveRootfs(t *testing.T) {
+	tmpDir := t.TempDir()
+	rootfsPath := filepath.Join(tmpDir, "rootfs")
+	snapshotsDir := filepath.Join(tmpDir, "snapshots")
+
+	if err := os.Mkdir(rootfsPath, 0o755); err != nil {
+		t.Fatalf("failed to create rootfs: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(rootfsPath, "file"), []byte("data"), 0o644); err != nil {
+		t.Fatalf("failed to create rootfs file: %v", err)
+	}
+	if err := os.Mkdir(snapshotsDir, 0o755); err != nil {
+		t.Fatalf("failed to create snapshots directory: %v", err)
+	}
+
+	if err := CreateSnapshot(rootfsPath, snapshotsDir, "test"); err != nil {
+		t.Fatalf("CreateSnapshot failed: %v", err)
+	}
+
+	matches, err := filepath.Glob(filepath.Join(snapshotsDir, "test.*.tar.zst"))
+	if err != nil {
+		t.Fatalf("failed to list snapshots: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("snapshot count = %d, want 1: %v", len(matches), matches)
 	}
 }

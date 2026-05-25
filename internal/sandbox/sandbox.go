@@ -126,6 +126,12 @@ func EnsureStopped(name string) error {
 
 // CreateSnapshot creates a zstd-compressed tarball of the rootfs and changes ownership to SUDO_USER if applicable.
 func CreateSnapshot(rootfsPath, snapshotsDir, snapshotName string) error {
+	if rootfsExists, err := RequireInactiveRootfs(rootfsPath); err != nil {
+		return err
+	} else if !rootfsExists {
+		return fmt.Errorf("%v is missing", rootfsPath)
+	}
+
 	pattern := filepath.Join(snapshotsDir, snapshotName+".*.tar.zst")
 	oldSnapshots, err := filepath.Glob(pattern)
 	if err != nil {

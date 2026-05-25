@@ -2,18 +2,6 @@
 
 ## Major Issues
 
-1. Snapshots should reject active mounts before archiving a rootfs.
-
-   `CreateSnapshot` compresses the rootfs without checking `HasMounts`. A stopped
-   sandbox can still have active mounts under its rootfs, which could archive host
-   content. Guard this before walking the rootfs, as restore/delete do.
-
-2. `CreateSnapshot` should validate `snapshotName` internally.
-
-   The CLI validates snapshot names, but `CreateSnapshot` builds glob and output
-   paths directly from `snapshotName`. A future internal caller could use path
-   separators to write or clean up outside `snapshotsDir`.
-
 ## Minor Issues
 
 ## Ignored Issues
@@ -46,3 +34,9 @@
    Missing runtime nspawn symlinks are acceptable: `sbx up` may not have
    completed, `sbx down` may have removed them, or a user may have cleaned them.
    Suspicious existing symlinks still warn and are left untouched.
+
+6. `CreateSnapshot` should validate `snapshotName` internally.
+
+   The CLI validates snapshot names, but `CreateSnapshot` builds glob and output
+   paths directly from `snapshotName`. A future internal caller could use path
+   separators to write or clean up outside `snapshotsDir`.
