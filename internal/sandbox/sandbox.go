@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edmonl/opqu-sandbox/internal/config"
 	"github.com/edmonl/opqu-sandbox/internal/util"
 	"github.com/klauspost/compress/zstd"
 )
@@ -89,6 +90,39 @@ func RequireInactiveRootfs(path string) (bool, error) {
 	}
 
 	return true, err
+}
+
+// RemoveNspawnFile removes a generated nspawn file and its symlink in the best effort.
+func RemoveNspawnFile(sbxDir, name string, conf *config.Config) {
+	nspawnFile := filepath.Join(sbxDir, "rootfs", name+".nspawn")
+	nspawnSymlinkPath := filepath.Join(conf.NspawnFilesPath, name+".nspawn")
+
+	if ok, err := util.CheckSymlinkTarget(nspawnSymlinkPath, nspawnFile); err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			util.Warn("failed to clean up nspawn file symlink: %v", err)
+		}
+	} else if !ok {
+		util.Warn("keep nspawn file symlink %v because it does not point to %v", nspawnSymlinkPath, nspawnFile)
+	} else if err := os.Remove(nspawnSymlinkPath); err != nil {
+		util.Warn("failed to delete nspawn file symlink %v: %v", nspawnSymlinkPath, err)
+	}
+
+	info, err := os.Lstat(nspawnFile)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			util.Warn("failed to delete nspawn file %v: %v", nspawnFile, err)
+		}
+		return
+	}
+
+	if !info.Mode().IsRegular() {
+		util.Warn("failed to delete nspawn file %v: not a regular file", nspawnFile)
+		return
+	}
+
+	if err := os.Remove(nspawnFile); err != nil {
+		util.Warn("failed to delete nspawn file %v: %v", nspawnFile, err)
+	}
 }
 
 // IsRunning checks whether the sandbox with the specified name is currently running via machinectl.

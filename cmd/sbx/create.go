@@ -17,7 +17,7 @@ import (
 
 var createCmd = &cobra.Command{
 	Use:   "create [name]",
-	Short: "Create rootfs for a new sandbox",
+	Short: "Create rootfs for a new sandbox and its base snapshot",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]

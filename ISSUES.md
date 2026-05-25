@@ -55,3 +55,9 @@
    time-of-check/time-of-use symlink swap between that check and `WriteFile` is
    theoretically possible, but this is not worth the extra low-level file-open
    complexity for the current local root-run workflow.
+
+9. `sbx create` help does not explicitly say base snapshot creation is
+   best-effort.
+
+   The command warns when base snapshot creation fails, so runtime behavior makes
+   the best-effort nature visible. The short help remains concise.

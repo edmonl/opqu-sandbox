@@ -2,10 +2,12 @@ package sandbox
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/edmonl/opqu-sandbox/internal/config"
 	"github.com/klauspost/compress/zstd"
 )
 
@@ -134,6 +136,99 @@ func TestReplaceRootfsRejectsMissingRootfs(t *testing.T) {
 
 	if err := ReplaceRootfs(rootfsPath, filepath.Join(tmpDir, "archive.tar.zst")); err == nil {
 		t.Fatal("ReplaceRootfs accepted a missing rootfs")
+	}
+}
+
+func TestRemoveNspawnFileRemovesFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	nspawnPath := filepath.Join(tmpDir, "rootfs", "test.nspawn")
+	nspawnSymlinkPath := filepath.Join(tmpDir, "nspawn", "test.nspawn")
+	conf := &config.Config{
+		NspawnFilesPath: filepath.Join(tmpDir, "nspawn"),
+		SandboxUser:     &user.User{Username: "test"},
+	}
+
+	if err := os.MkdirAll(filepath.Dir(nspawnPath), 0o755); err != nil {
+		t.Fatalf("failed to create rootfs directory: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(nspawnSymlinkPath), 0o755); err != nil {
+		t.Fatalf("failed to create nspawn directory: %v", err)
+	}
+	if err := os.WriteFile(nspawnPath, []byte("config"), 0o644); err != nil {
+		t.Fatalf("failed to create nspawn file: %v", err)
+	}
+	if err := os.Symlink(nspawnPath, nspawnSymlinkPath); err != nil {
+		t.Fatalf("failed to create nspawn symlink: %v", err)
+	}
+
+	RemoveNspawnFile(tmpDir, "test", conf)
+	if _, err := os.Lstat(nspawnSymlinkPath); !os.IsNotExist(err) {
+		t.Fatalf("nspawn symlink still exists or stat failed unexpectedly: %v", err)
+	}
+	if _, err := os.Lstat(nspawnPath); !os.IsNotExist(err) {
+		t.Fatalf("nspawn file still exists or stat failed unexpectedly: %v", err)
+	}
+}
+
+func TestRemoveNspawnFileKeepsRepointedSymlink(t *testing.T) {
+	tmpDir := t.TempDir()
+	nspawnPath := filepath.Join(tmpDir, "rootfs", "test.nspawn")
+	nspawnSymlinkPath := filepath.Join(tmpDir, "nspawn", "test.nspawn")
+	otherTarget := filepath.Join(tmpDir, "other.nspawn")
+	conf := &config.Config{
+		NspawnFilesPath: filepath.Join(tmpDir, "nspawn"),
+		SandboxUser:     &user.User{Username: "test"},
+	}
+
+	if err := os.MkdirAll(filepath.Dir(nspawnPath), 0o755); err != nil {
+		t.Fatalf("failed to create rootfs directory: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(nspawnSymlinkPath), 0o755); err != nil {
+		t.Fatalf("failed to create nspawn directory: %v", err)
+	}
+	if err := os.WriteFile(nspawnPath, []byte("config"), 0o644); err != nil {
+		t.Fatalf("failed to create nspawn file: %v", err)
+	}
+	if err := os.WriteFile(otherTarget, []byte("other"), 0o644); err != nil {
+		t.Fatalf("failed to create other target: %v", err)
+	}
+	if err := os.Symlink(otherTarget, nspawnSymlinkPath); err != nil {
+		t.Fatalf("failed to create nspawn symlink: %v", err)
+	}
+
+	RemoveNspawnFile(tmpDir, "test", conf)
+
+	target, err := os.Readlink(nspawnSymlinkPath)
+	if err != nil {
+		t.Fatalf("failed to read nspawn symlink: %v", err)
+	}
+	if target != otherTarget {
+		t.Fatalf("nspawn symlink target = %q, want %q", target, otherTarget)
+	}
+	if _, err := os.Lstat(nspawnPath); !os.IsNotExist(err) {
+		t.Fatalf("nspawn file still exists or stat failed unexpectedly: %v", err)
+	}
+}
+
+func TestRemoveNspawnFileRejectsNonRegularFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	nspawnPath := filepath.Join(tmpDir, "rootfs", "test.nspawn")
+	childPath := filepath.Join(nspawnPath, "child")
+	conf := &config.Config{
+		NspawnFilesPath: filepath.Join(tmpDir, "nspawn"),
+		SandboxUser:     &user.User{Username: "test"},
+	}
+
+	if err := os.MkdirAll(nspawnPath, 0o755); err != nil {
+		t.Fatalf("failed to create nspawn directory: %v", err)
+	}
+	if err := os.WriteFile(childPath, []byte("keep"), 0o644); err != nil {
+		t.Fatalf("failed to create child file: %v", err)
+	}
+
+	RemoveNspawnFile(tmpDir, "test", conf)
+	if _, err := os.Stat(childPath); err != nil {
+		t.Fatalf("directory contents were removed: %v", err)
 	}
 }
 

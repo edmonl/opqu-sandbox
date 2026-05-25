@@ -1,9 +1,7 @@
 package main
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -60,24 +58,7 @@ var deleteCmd = &cobra.Command{
 			return fmt.Errorf("failed to delete sandbox image symlink %v: %w", imageSymlink, err)
 		}
 
-		// The nspawn symlink is best-effort cleanup.
-		// Leave it alone if it was repointed manually, but keep deleting the file owned by this sandbox.
-		nspawnFile := filepath.Join(sbxDir, "rootfs", name+".nspawn")
-		nspawnSymlinkPath := filepath.Join(conf.NspawnFilesPath, name+".nspawn")
-		if ok, err := util.CheckSymlinkTarget(nspawnSymlinkPath, nspawnFile); err != nil {
-			if !errors.Is(err, fs.ErrNotExist) {
-				util.Warn("failed to clean up nspawn file symlink: %v", err)
-			}
-		} else if !ok {
-			util.Warn("keep nspawn file symlink %v because it does not point to %v", nspawnSymlinkPath, nspawnFile)
-		} else if err := os.RemoveAll(nspawnSymlinkPath); err != nil {
-			util.Warn("failed to delete nspawn file symlink %v: %v", nspawnSymlinkPath, err)
-		}
-
-		// Remove the managed nspawn file.
-		if err := os.RemoveAll(nspawnFile); err != nil {
-			util.Warn("failed to delete nspawn file %v: %v", nspawnFile, err)
-		}
+		sandbox.RemoveNspawnFile(sbxDir, name, conf)
 
 		// Snapshots are disposable output of the sandbox. Failure should not hide a successful rootfs cleanup.
 		snapshotsDir := filepath.Join(sbxDir, "snapshots", name)
