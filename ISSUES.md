@@ -40,3 +40,18 @@
    The CLI validates snapshot names, but `CreateSnapshot` builds glob and output
    paths directly from `snapshotName`. A future internal caller could use path
    separators to write or clean up outside `snapshotsDir`.
+
+7. `sbx up` could reject active mounts before starting a stopped sandbox.
+
+   A stopped sandbox can still have stale mounts under its rootfs. Startup does
+   not currently call `RequireInactiveRootfs`, but `systemd-nspawn` is the
+   component that consumes the rootfs at startup and should fail or surface mount
+   conflicts. Snapshot/delete/restore remain the higher-risk paths because they
+   walk, remove, or replace rootfs contents.
+
+8. `createNspawnFile` does not use `O_NOFOLLOW` when writing the nspawn file.
+
+   `createNspawnFile` rejects symlink paths with `Lstat` before writing. A
+   time-of-check/time-of-use symlink swap between that check and `WriteFile` is
+   theoretically possible, but this is not worth the extra low-level file-open
+   complexity for the current local root-run workflow.

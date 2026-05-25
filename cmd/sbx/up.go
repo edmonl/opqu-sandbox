@@ -38,13 +38,6 @@ var upCmd = &cobra.Command{
 			return err
 		}
 
-		if running, err := sandbox.IsRunning(name); err != nil {
-			return err
-		} else if running {
-			util.Warn("sandbox %v is already running", name)
-			return nil
-		}
-
 		conf, err := config.LoadConf(sbxDir, name)
 		if err != nil {
 			return err
@@ -56,6 +49,13 @@ var upCmd = &cobra.Command{
 			return fmt.Errorf("invalid sandbox image symlink: %w", e)
 		} else if !ok {
 			return fmt.Errorf("sandbox image symlink %v does not point to rootfs %v", imageSymlink, rootfsPath)
+		}
+
+		if running, e := sandbox.IsRunning(name); e != nil {
+			return e
+		} else if running {
+			util.Warn("sandbox %v is already running", name)
+			return nil
 		}
 
 		mounts, err := config.LoadMounts(sbxDir, name, conf.SandboxUser)
@@ -91,7 +91,7 @@ var upCmd = &cobra.Command{
 func createNspawnFile(rootfsDir, name string, conf *config.Config, mounts []*config.Mount) (string, error) {
 	nspawnPath := filepath.Join(rootfsDir, name+".nspawn")
 
-	info, err := os.Stat(nspawnPath)
+	info, err := os.Lstat(nspawnPath)
 	if err == nil {
 		if info.Mode().IsRegular() {
 			prompt := fmt.Sprintf("File %v already exists. Press <Enter> directly to overwrite, or Ctrl+C to cancel: ", nspawnPath)
