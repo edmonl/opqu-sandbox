@@ -2,6 +2,16 @@
 
 ## Major Issues
 
+1. User and ownership model needs to be made consistent.
+
+   The project currently has at least three relevant identities: the invoking
+   user, the configured sandbox user, and root after privilege escalation.
+   Snapshot directories are intended to be invoking-user owned, while snapshot
+   archives are chowned back from root via `SUDO_USER` when available. Other
+   sandbox directories and files may follow different ownership paths. We should
+   decide whether the invoking user must match the sandbox user and then make
+   directory/file ownership rules explicit and consistently enforced.
+
 ## Minor Issues
 
 ## Ignored Issues
