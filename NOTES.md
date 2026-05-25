@@ -11,6 +11,9 @@
 - `sbx create` intentionally respects symlinked user-managed directories such
   as `rootfs`, `snapshots`, and `pkg-cache`; symlinks are a valid way to
   relocate them.
+- `sbx snapshot` creates the snapshot directory before sudo. Snapshot paths are
+  user-owned output locations, and a different user should fail instead of root
+  creating or taking ownership of that path.
 - `getSetupScript` is for commands that must run inside the chroot. Write static
   rootfs files such as `/etc/hostname` and `/etc/hosts` from Go.
 - Sandbox user creation mirrors only the host user's UID and primary GID.

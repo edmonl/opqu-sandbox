@@ -22,6 +22,7 @@ import (
 )
 
 var nameRegex = regexp.MustCompile(`^[a-z0-9-]+$`)
+var snapshotNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // ValidateName ensures the sandbox name consists only of lowercase alphanumeric characters and hyphens.
 func ValidateName(name string) error {
@@ -29,6 +30,14 @@ func ValidateName(name string) error {
 		return nil
 	}
 	return fmt.Errorf("sandbox name %v is invalid, must be lowercase alphanumeric and hyphens only", name)
+}
+
+// ValidateSnapshotName ensures the snapshot name consists only of alphanumeric characters, underscores, and hyphens.
+func ValidateSnapshotName(name string) error {
+	if snapshotNameRegex.MatchString(name) {
+		return nil
+	}
+	return errors.New("snapshot name must be alphanumeric, '_', and '-' only")
 }
 
 // ReplaceRootfs replaces an existing root filesystem by extracting a new archive.

@@ -4,14 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 
-	"github.com/edmonl/opqu-sandbox/internal/config"
 	"github.com/edmonl/opqu-sandbox/internal/sandbox"
 	"github.com/spf13/cobra"
 )
-
-var snapshotNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 var snapshotCmd = &cobra.Command{
 	Use:   "snapshot [name] [snapshot name]",
@@ -24,26 +20,20 @@ var snapshotCmd = &cobra.Command{
 		}
 
 		snapshotName := args[1]
-		if !snapshotNameRegex.MatchString(snapshotName) {
-			return fmt.Errorf("snapshot name %q is invalid, must be alphanumeric, '_', and '-' only", snapshotName)
+		if err := sandbox.ValidateSnapshotName(snapshotName); err != nil {
+			return err
+		}
+
+		snapshotsDir := filepath.Join(sbxDir, "snapshots", name)
+		if err := os.MkdirAll(snapshotsDir, 0o755); err != nil {
+			return fmt.Errorf("failed to create snapshots directory %v: %w", snapshotsDir, err)
 		}
 
 		if err := sandbox.Sudo(sbxDir); err != nil {
 			return err
 		}
 
-		conf, err := config.LoadConf(sbxDir, name)
-		if err != nil {
-			return err
-		}
-
-		snapshotsDir := filepath.Join(sbxDir, "snapshots", name)
-		if err := os.MkdirAll(snapshotsDir, 0o755); err != nil {
-			return fmt.Errorf("failed to create snapshots directory: %w", err)
-		}
-
-		rootfsPath := filepath.Join(conf.ImagePath, name)
-		if err := sandbox.CreateSnapshot(rootfsPath, snapshotsDir, snapshotName); err != nil {
+		if err := sandbox.CreateSnapshot(filepath.Join(sbxDir, "rootfs", name), snapshotsDir, snapshotName); err != nil {
 			return err
 		}
 
