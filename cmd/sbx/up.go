@@ -25,9 +25,10 @@ type nspawnTemplateData struct {
 }
 
 var upCmd = &cobra.Command{
-	Use:   "up [name]",
-	Short: "Power on a sandbox",
-	Args:  cobra.ExactArgs(1),
+	Use:     "up [name]",
+	Aliases: []string{"u"},
+	Short:   "Power on a sandbox",
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		if err := sandbox.ValidateName(name); err != nil {
