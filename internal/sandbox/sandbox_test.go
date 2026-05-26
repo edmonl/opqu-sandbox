@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/edmonl/opqu-sandbox/internal/config"
-	"github.com/klauspost/compress/zstd"
 )
 
 func TestValidateName(t *testing.T) {
@@ -106,39 +105,6 @@ func TestCreateSymlinkRejectsNonSymlink(t *testing.T) {
 	}
 }
 
-func TestReplaceRootfsRejectsSymlinkRootfs(t *testing.T) {
-	tmpDir := t.TempDir()
-	rootfsPath := filepath.Join(tmpDir, "rootfs")
-
-	if err := os.Symlink(filepath.Join(tmpDir, "target"), rootfsPath); err != nil {
-		t.Fatalf("failed to create rootfs symlink: %v", err)
-	}
-	if err := ReplaceRootfs(rootfsPath, filepath.Join(tmpDir, "archive.tar.zst")); err == nil {
-		t.Fatal("ReplaceRootfs accepted a symlink rootfs")
-	}
-}
-
-func TestReplaceRootfsRejectsNonDirectoryRootfs(t *testing.T) {
-	tmpDir := t.TempDir()
-	rootfsPath := filepath.Join(tmpDir, "rootfs")
-
-	if err := os.WriteFile(rootfsPath, []byte("not a directory"), 0o644); err != nil {
-		t.Fatalf("failed to create rootfs file: %v", err)
-	}
-	if err := ReplaceRootfs(rootfsPath, filepath.Join(tmpDir, "archive.tar.zst")); err == nil {
-		t.Fatal("ReplaceRootfs accepted a non-directory rootfs")
-	}
-}
-
-func TestReplaceRootfsRejectsMissingRootfs(t *testing.T) {
-	tmpDir := t.TempDir()
-	rootfsPath := filepath.Join(tmpDir, "rootfs")
-
-	if err := ReplaceRootfs(rootfsPath, filepath.Join(tmpDir, "archive.tar.zst")); err == nil {
-		t.Fatal("ReplaceRootfs accepted a missing rootfs")
-	}
-}
-
 func TestRemoveNspawnFileRemovesFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	nspawnPath := filepath.Join(tmpDir, "rootfs", "test.nspawn")
@@ -229,61 +195,6 @@ func TestRemoveNspawnFileRejectsNonRegularFile(t *testing.T) {
 	RemoveNspawnFile(tmpDir, "test", conf)
 	if _, err := os.Stat(childPath); err != nil {
 		t.Fatalf("directory contents were removed: %v", err)
-	}
-}
-
-func TestReplaceRootfsRejectsSymlinkBackup(t *testing.T) {
-	tmpDir := t.TempDir()
-	rootfsPath := filepath.Join(tmpDir, "rootfs")
-	bakPath := rootfsPath + ".bak"
-
-	if err := os.Mkdir(rootfsPath, 0o755); err != nil {
-		t.Fatalf("failed to create rootfs directory: %v", err)
-	}
-	if err := os.Symlink(filepath.Join(tmpDir, "target"), bakPath); err != nil {
-		t.Fatalf("failed to create backup symlink: %v", err)
-	}
-	if err := ReplaceRootfs(rootfsPath, filepath.Join(tmpDir, "archive.tar.zst")); err == nil {
-		t.Fatal("ReplaceRootfs accepted a symlink backup")
-	}
-}
-
-func TestReplaceRootfsWithoutExistingBackup(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldRootfsPath := filepath.Join(tmpDir, "old-rootfs")
-	rootfsPath := filepath.Join(tmpDir, "rootfs")
-	archivePath := filepath.Join(tmpDir, "archive.tar.zst")
-
-	if err := os.Mkdir(oldRootfsPath, 0o755); err != nil {
-		t.Fatalf("failed to create old rootfs directory: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(oldRootfsPath, "file"), []byte("new"), 0o644); err != nil {
-		t.Fatalf("failed to create archive source file: %v", err)
-	}
-	if err := Compress(oldRootfsPath, archivePath, zstd.SpeedDefault); err != nil {
-		t.Fatalf("failed to create archive: %v", err)
-	}
-
-	if err := os.Mkdir(rootfsPath, 0o755); err != nil {
-		t.Fatalf("failed to create rootfs directory: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(rootfsPath, "file"), []byte("old"), 0o644); err != nil {
-		t.Fatalf("failed to create old rootfs file: %v", err)
-	}
-
-	if err := ReplaceRootfs(rootfsPath, archivePath); err != nil {
-		t.Fatalf("ReplaceRootfs failed: %v", err)
-	}
-
-	content, err := os.ReadFile(filepath.Join(rootfsPath, "file"))
-	if err != nil {
-		t.Fatalf("failed to read restored rootfs file: %v", err)
-	}
-	if string(content) != "new" {
-		t.Fatalf("restored rootfs file = %q, want %q", string(content), "new")
-	}
-	if _, err := os.Stat(rootfsPath + ".bak"); !os.IsNotExist(err) {
-		t.Fatalf("backup still exists after successful restore: %v", err)
 	}
 }
 

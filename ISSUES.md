@@ -12,6 +12,15 @@
    decide whether the invoking user must match the sandbox user and then make
    directory/file ownership rules explicit and consistently enforced.
 
+2. `sbx restore` renames the existing rootfs before proving the archive can be
+   extracted.
+
+   A missing path, path fallback typo, or invalid archive causes `rootfs` to be
+   renamed to `.bak` before `Extract` fails. The current rollback path tries to
+   restore the backup, but the safer shape is to extract into a temporary
+   sibling directory first, then swap `rootfs -> .bak` and `tmp -> rootfs` only
+   after extraction succeeds.
+
 ## Minor Issues
 
 ## Ignored Issues

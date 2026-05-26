@@ -40,48 +40,6 @@ func ValidateSnapshotName(name string) error {
 	return errors.New("snapshot name must be alphanumeric, '_', and '-' only")
 }
 
-// ReplaceRootfs replaces an existing root filesystem by extracting a new archive.
-// It creates a backup of the current rootfs, extracts the archive, and restores the backup if extraction fails.
-func ReplaceRootfs(rootfsPath, archivePath string) error {
-	if rootfsExists, err := RequireInactiveRootfs(rootfsPath); err != nil {
-		return err
-	} else if !rootfsExists {
-		return fmt.Errorf("%v is missing", rootfsPath)
-	}
-
-	bakPath := rootfsPath + ".bak"
-	if bakExists, err := RequireInactiveRootfs(bakPath); err != nil {
-		return err
-	} else if bakExists {
-		if err := os.RemoveAll(bakPath); err != nil {
-			return fmt.Errorf("failed to delete exiting backup %v: %w", bakPath, err)
-		}
-	}
-
-	// Move existing rootfs to backup.
-	if err := os.Rename(rootfsPath, bakPath); err != nil {
-		return fmt.Errorf("failed to backup rootfs %v: %w", rootfsPath, err)
-	}
-
-	if err := Extract(archivePath, rootfsPath); err != nil {
-		// Restore backup on failure
-		if e := os.RemoveAll(rootfsPath); e != nil {
-			util.Warn("failed to restore backup %v: failed to delete unsuccessful extraction result %v: %v", bakPath, rootfsPath, e)
-		} else if e := os.Rename(bakPath, rootfsPath); e != nil {
-			util.Warn("failed to restore backup %v to %v: %v", bakPath, rootfsPath, e)
-		}
-
-		return fmt.Errorf("failed to extract %v: %w", archivePath, err)
-	}
-
-	// Cleanup backup on success
-	if err := os.RemoveAll(bakPath); err != nil {
-		util.Warn("failed to delete backup %v: %v", bakPath, err)
-	}
-
-	return nil
-}
-
 // RequireInactiveRootfs verifies that path is missing or a real directory without active mounts.
 // The returned bool indicates whether the rootfs exists.
 func RequireInactiveRootfs(path string) (bool, error) {
