@@ -1,9 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/edmonl/opqu-sandbox/internal/sandbox"
 	"github.com/edmonl/opqu-sandbox/internal/util"
@@ -34,7 +38,7 @@ var restoreCmd = &cobra.Command{
 			return err
 		}
 
-		return replaceRootfs(filepath.Join(sbxDir, "rootfs", name), snapshotPath)
+		return replaceRootfs(filepath.Join(sbxDir, "rootfs"), name, snapshotPath)
 	},
 }
 
@@ -68,8 +72,10 @@ func resolveSnapshotPath(sbxDir, name, snapshotName string) (string, error) {
 }
 
 // replaceRootfs replaces an existing root filesystem by extracting a new archive.
-// It creates a backup of the current rootfs, extracts the archive, and restores the backup if extraction fails.
-func replaceRootfs(rootfsPath, archivePath string) error {
+// It extracts the archive first, then swaps it with the current rootfs
+// so that failed extraction won't touch rootfs.
+func replaceRootfs(rootfsDir, name, archivePath string) error {
+	rootfsPath := filepath.Join(rootfsDir, name)
 	if rootfsExists, err := sandbox.RequireInactiveRootfs(rootfsPath); err != nil {
 		return err
 	} else if !rootfsExists {
@@ -81,29 +87,68 @@ func replaceRootfs(rootfsPath, archivePath string) error {
 		return err
 	} else if bakExists {
 		if err := os.RemoveAll(bakPath); err != nil {
-			return fmt.Errorf("failed to delete exiting backup %v: %w", bakPath, err)
+			return fmt.Errorf("failed to delete existing backup %v: %w", bakPath, err)
 		}
 	}
+
+	tmpPath, err := temporaryRestorePath(rootfsDir, name)
+	if err != nil {
+		return err
+	}
+	if err := sandbox.Extract(archivePath, tmpPath); err != nil {
+		if e := os.RemoveAll(tmpPath); e != nil {
+			util.Warn("failed to delete unsuccessful extraction result %v: %v", tmpPath, e)
+		}
+		return fmt.Errorf("failed to extract %v: %w", archivePath, err)
+	}
+
+	restoreSuccess := false
+	defer func() {
+		if !restoreSuccess {
+			if err := os.RemoveAll(tmpPath); err != nil {
+				util.Warn("failed to delete temporary restore rootfs %v: %v", tmpPath, err)
+			}
+		}
+	}()
 
 	if err := os.Rename(rootfsPath, bakPath); err != nil {
 		return fmt.Errorf("failed to backup rootfs %v: %w", rootfsPath, err)
 	}
 
-	if err := sandbox.Extract(archivePath, rootfsPath); err != nil {
-		if e := os.RemoveAll(rootfsPath); e != nil {
-			util.Warn("failed to restore backup %v: failed to delete unsuccessful extraction result %v: %v", bakPath, rootfsPath, e)
-		} else if e := os.Rename(bakPath, rootfsPath); e != nil {
+	if err := os.Rename(tmpPath, rootfsPath); err != nil {
+		if e := os.Rename(bakPath, rootfsPath); e != nil {
 			util.Warn("failed to restore backup %v to %v: %v", bakPath, rootfsPath, e)
 		}
-
-		return fmt.Errorf("failed to extract %v: %w", archivePath, err)
+		return fmt.Errorf("failed to replace rootfs %v with %v: %w", rootfsPath, tmpPath, err)
 	}
+	restoreSuccess = true
 
 	if err := os.RemoveAll(bakPath); err != nil {
 		util.Warn("failed to delete backup %v: %v", bakPath, err)
 	}
 
 	return nil
+}
+
+func temporaryRestorePath(rootfsDir, name string) (string, error) {
+	for range 16 {
+		tmpPath := filepath.Join(rootfsDir, fmt.Sprintf(
+			"%v.restore.%v.%v.tmp",
+			name,
+			time.Now().Format("2006-01-02T15-04-05-000000"),
+			rand.IntN(900000)+100000,
+		))
+
+		if _, err := os.Lstat(tmpPath); err == nil {
+			continue
+		} else if errors.Is(err, fs.ErrNotExist) {
+			return tmpPath, nil
+		} else {
+			return "", fmt.Errorf("failed to access temporary restore path %v: %w", tmpPath, err)
+		}
+	}
+
+	return "", fmt.Errorf("failed to find available temporary restore path for %v", filepath.Join(rootfsDir, name))
 }
 
 func init() {

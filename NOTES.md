@@ -14,6 +14,23 @@
 - `sbx snapshot` creates the snapshot directory before sudo. Snapshot paths are
   user-owned output locations, and a different user should fail instead of root
   creating or taking ownership of that path.
+- `sbx restore` accepts a snapshot name only, not an arbitrary archive path. We
+  considered falling back from a missing snapshot name to treating the argument
+  as a path, but rejected that because restoring arbitrary paths weakens the
+  ownership boundary and complicates sudo timing. We also considered resolving
+  before sudo and passing rewritten or hidden arguments into the elevated
+  process to avoid duplicate prompts, but rejected that because we do not know
+  exactly which original CLI argument should be replaced once flags, aliases, or
+  future options are involved. Confirmation prompts tied to restore-specific
+  resolution must happen after sudo to avoid asking once before re-exec and
+  again in the elevated process; as a consequence, restore does not check the
+  snapshot archive file before sudo. Resolve the name inside
+  `snapshots/{sandbox}/` after sudo and require exactly one matching regular
+  archive. Missing, duplicate, and non-regular matches are errors that the user
+  should fix manually. Do not auto-select the latest duplicate; duplicates mean
+  the snapshot store invariant has already been broken.
+- `sbx restore` uses `.bak` only as an operation-local temporary backup. An
+  existing `.bak` is stale and may be deleted before extracting the new archive.
 - `getSetupScript` is for commands that must run inside the chroot. Write static
   rootfs files such as `/etc/hostname` and `/etc/hosts` from Go.
 - Sandbox user creation mirrors only the host user's UID and primary GID.

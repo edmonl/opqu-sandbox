@@ -3,12 +3,54 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/edmonl/opqu-sandbox/internal/sandbox"
 	"github.com/klauspost/compress/zstd"
 )
+
+func TestTemporaryRestorePathUsesReadableNameAndDoesNotCreatePath(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	tmpPath, err := temporaryRestorePath(tmpDir, "test")
+	if err != nil {
+		t.Fatalf("temporaryRestorePath failed: %v", err)
+	}
+
+	pattern := regexp.MustCompile(`^test\.restore\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6}\.\d{6}\.tmp$`)
+	if !pattern.MatchString(filepath.Base(tmpPath)) {
+		t.Fatalf("temporaryRestorePath base name = %q, want readable restore temp name", filepath.Base(tmpPath))
+	}
+	if _, err := os.Lstat(tmpPath); !os.IsNotExist(err) {
+		t.Fatalf("temporaryRestorePath created path or stat failed unexpectedly: %v", err)
+	}
+}
+
+func TestTemporaryRestorePathDoesNotDeleteExistingTempLikePath(t *testing.T) {
+	tmpDir := t.TempDir()
+	existingPath := filepath.Join(tmpDir, "test.restore.2026-05-26T14-35-07-482193.734211.tmp")
+	if err := os.WriteFile(existingPath, []byte("keep"), 0o644); err != nil {
+		t.Fatalf("failed to create existing temp-like path: %v", err)
+	}
+
+	tmpPath, err := temporaryRestorePath(tmpDir, "test")
+	if err != nil {
+		t.Fatalf("temporaryRestorePath failed: %v", err)
+	}
+	if tmpPath == existingPath {
+		t.Fatalf("temporaryRestorePath returned existing path %v", tmpPath)
+	}
+
+	content, err := os.ReadFile(existingPath)
+	if err != nil {
+		t.Fatalf("existing temp-like path was removed: %v", err)
+	}
+	if string(content) != "keep" {
+		t.Fatalf("existing temp-like path content = %q, want %q", string(content), "keep")
+	}
+}
 
 func TestResolveSnapshotPathUsesNamedSnapshot(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -80,40 +122,39 @@ func TestResolveSnapshotPathRejectsMultipleSnapshots(t *testing.T) {
 
 func TestReplaceRootfsRejectsSymlinkRootfs(t *testing.T) {
 	tmpDir := t.TempDir()
-	rootfsPath := filepath.Join(tmpDir, "rootfs")
+	rootfsPath := filepath.Join(tmpDir, "test")
 
 	if err := os.Symlink(filepath.Join(tmpDir, "target"), rootfsPath); err != nil {
 		t.Fatalf("failed to create rootfs symlink: %v", err)
 	}
-	if err := replaceRootfs(rootfsPath, filepath.Join(tmpDir, "archive.tar.zst")); err == nil {
+	if err := replaceRootfs(tmpDir, "test", filepath.Join(tmpDir, "archive.tar.zst")); err == nil {
 		t.Fatal("replaceRootfs accepted a symlink rootfs")
 	}
 }
 
 func TestReplaceRootfsRejectsNonDirectoryRootfs(t *testing.T) {
 	tmpDir := t.TempDir()
-	rootfsPath := filepath.Join(tmpDir, "rootfs")
+	rootfsPath := filepath.Join(tmpDir, "test")
 
 	if err := os.WriteFile(rootfsPath, []byte("not a directory"), 0o644); err != nil {
 		t.Fatalf("failed to create rootfs file: %v", err)
 	}
-	if err := replaceRootfs(rootfsPath, filepath.Join(tmpDir, "archive.tar.zst")); err == nil {
+	if err := replaceRootfs(tmpDir, "test", filepath.Join(tmpDir, "archive.tar.zst")); err == nil {
 		t.Fatal("replaceRootfs accepted a non-directory rootfs")
 	}
 }
 
 func TestReplaceRootfsRejectsMissingRootfs(t *testing.T) {
 	tmpDir := t.TempDir()
-	rootfsPath := filepath.Join(tmpDir, "rootfs")
 
-	if err := replaceRootfs(rootfsPath, filepath.Join(tmpDir, "archive.tar.zst")); err == nil {
+	if err := replaceRootfs(tmpDir, "test", filepath.Join(tmpDir, "archive.tar.zst")); err == nil {
 		t.Fatal("replaceRootfs accepted a missing rootfs")
 	}
 }
 
 func TestReplaceRootfsRejectsSymlinkBackup(t *testing.T) {
 	tmpDir := t.TempDir()
-	rootfsPath := filepath.Join(tmpDir, "rootfs")
+	rootfsPath := filepath.Join(tmpDir, "test")
 	bakPath := rootfsPath + ".bak"
 
 	if err := os.Mkdir(rootfsPath, 0o755); err != nil {
@@ -122,15 +163,46 @@ func TestReplaceRootfsRejectsSymlinkBackup(t *testing.T) {
 	if err := os.Symlink(filepath.Join(tmpDir, "target"), bakPath); err != nil {
 		t.Fatalf("failed to create backup symlink: %v", err)
 	}
-	if err := replaceRootfs(rootfsPath, filepath.Join(tmpDir, "archive.tar.zst")); err == nil {
+	if err := replaceRootfs(tmpDir, "test", filepath.Join(tmpDir, "archive.tar.zst")); err == nil {
 		t.Fatal("replaceRootfs accepted a symlink backup")
+	}
+}
+
+func TestReplaceRootfsPreservesRootfsWhenArchiveIsInvalid(t *testing.T) {
+	tmpDir := t.TempDir()
+	rootfsPath := filepath.Join(tmpDir, "test")
+	archivePath := filepath.Join(tmpDir, "archive.tar.zst")
+
+	if err := os.Mkdir(rootfsPath, 0o755); err != nil {
+		t.Fatalf("failed to create rootfs directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(rootfsPath, "file"), []byte("old"), 0o644); err != nil {
+		t.Fatalf("failed to create rootfs file: %v", err)
+	}
+	if err := os.WriteFile(archivePath, []byte("not a zstd archive"), 0o644); err != nil {
+		t.Fatalf("failed to create invalid archive: %v", err)
+	}
+
+	if err := replaceRootfs(tmpDir, "test", archivePath); err == nil {
+		t.Fatal("replaceRootfs accepted an invalid archive")
+	}
+
+	content, err := os.ReadFile(filepath.Join(rootfsPath, "file"))
+	if err != nil {
+		t.Fatalf("failed to read preserved rootfs file: %v", err)
+	}
+	if string(content) != "old" {
+		t.Fatalf("rootfs file = %q, want preserved content %q", string(content), "old")
+	}
+	if _, err := os.Stat(rootfsPath + ".bak"); !os.IsNotExist(err) {
+		t.Fatalf("backup exists after failed restore: %v", err)
 	}
 }
 
 func TestReplaceRootfsWithoutExistingBackup(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldRootfsPath := filepath.Join(tmpDir, "old-rootfs")
-	rootfsPath := filepath.Join(tmpDir, "rootfs")
+	rootfsPath := filepath.Join(tmpDir, "test")
 	archivePath := filepath.Join(tmpDir, "archive.tar.zst")
 
 	if err := os.Mkdir(oldRootfsPath, 0o755); err != nil {
@@ -150,7 +222,7 @@ func TestReplaceRootfsWithoutExistingBackup(t *testing.T) {
 		t.Fatalf("failed to create old rootfs file: %v", err)
 	}
 
-	if err := replaceRootfs(rootfsPath, archivePath); err != nil {
+	if err := replaceRootfs(tmpDir, "test", archivePath); err != nil {
 		t.Fatalf("replaceRootfs failed: %v", err)
 	}
 
