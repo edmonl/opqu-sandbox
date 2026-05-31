@@ -2,17 +2,32 @@
 
 ## Major Issues
 
-1. User and ownership model needs to be made consistent.
+1. Archive extraction does not restore regular file modes after creation.
 
-   The project currently has at least three relevant identities: the invoking
-   user, the configured sandbox user, and root after privilege escalation.
-   Snapshot directories are intended to be invoking-user owned, while snapshot
-   archives are chowned back from root via `SUDO_USER` when available. Other
-   sandbox directories and files may follow different ownership paths. We should
-   decide whether the invoking user must match the sandbox user and then make
-   directory/file ownership rules explicit and consistently enforced.
+   `Extract` creates regular files with the archived mode, but does not call
+   `chmod` after writing them. The process umask can silently strip permission
+   bits, making restored snapshots differ from the original rootfs.
 
 ## Minor Issues
+
+1. Snapshot creation can overwrite the previous archive when repeated within the same second.
+
+   `CreateSnapshot` writes directly to `{snapshot name}.{timestamp}.tar.zst`
+   using second-level timestamp precision. If a snapshot with the same name is
+   recreated in the same second and compression fails, the old archive may be
+   truncated and then removed.
+
+2. `IsRunning` treats any `machinectl show` exit status as not running.
+
+   A missing machine should be treated as stopped, but other non-zero failures
+   such as DBus, polkit, or systemd errors should be reported instead of letting
+   callers proceed on an unknown state.
+
+3. `sbx shell` does not use the standard sudo escalation flow.
+
+   On hosts where `machinectl shell` requires root, normal users get a raw
+   command failure instead of the confirmation and re-exec behavior used by
+   lifecycle commands.
 
 ## Ignored Issues
 

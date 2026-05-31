@@ -118,7 +118,7 @@ func showGlobalStatus() error {
 	conf, confErr := config.LoadConf(sbxDir, "")
 	rootfsDir := "/var/lib/machines"
 	if confErr == nil {
-		rootfsDir = conf.ImagePath
+		rootfsDir = conf.ImagesPath
 	}
 
 	fmt.Println("\nExisting Rootfs:")
@@ -145,7 +145,7 @@ func showGlobalStatus() error {
 	if confErr == nil {
 		u := conf.SandboxUser
 		format = normalFormat
-		status = fmt.Sprintf("%v (UID %v) ok", u.Username, u.Uid)
+		status = fmt.Sprintf("%v (UID %v) ok", u.Username, u.UID)
 	} else {
 		format = errFormat
 		status = confErr
@@ -261,7 +261,7 @@ func showSandboxStatus(name string) error {
 		fmt.Printf(normalFormat, "VARIANT:", conf.Variant)
 		fmt.Printf(normalFormat, "NETWORK_ZONE:", conf.NetworkZone)
 		fmt.Printf(normalFormat, "RESOLV_CONF:", conf.ResolvConf)
-		fmt.Printf(normalFormat, "SANDBOX_USER:", fmt.Sprintf("%v (UID %v)", conf.SandboxUser.Username, conf.SandboxUser.Uid))
+		fmt.Printf(normalFormat, "Sandbox User:", fmt.Sprintf("%v (UID %v)", conf.SandboxUser.Username, conf.SandboxUser.UID))
 		rootPasswordStatus := "(locked)"
 		if conf.RootPassword != "" {
 			rootPasswordStatus = "(configured)"

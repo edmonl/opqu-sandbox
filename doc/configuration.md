@@ -6,7 +6,7 @@ Each sandbox is identified by its name (`{name}`).
 
 `sbx` manages files in a sandbox directory that can be configured in the following order of precedence:
 
-1. **CLI override**: `sbx --sbx-directory /path/to/sandboxes ...`
+1. **CLI override**: `sbx --sbx-dir /path/to/sandboxes ...`
 2. **Environment override**: `OPQU_SBX_DIRECTORY=/path/to/sandboxes`
 3. **Default**: The current working directory.
 

@@ -1,6 +1,6 @@
 # Uninstall
 
-To clean up, first use `sbx status` to check for existing sandboxes. Stop running sandboxes with `sbx stop {name}`, and remove them using `sbx delete {name}`.
+To clean up, first use `sbx status` to check for existing sandboxes. Stop running sandboxes with `sbx down {name}`, and remove them using `sbx delete {name}`.
 
 Alternatively, you can manually stop containers and delete their images and `systemd` units using `machinectl`. Note that `.nspawn` files in `/etc/systemd/nspawn/` must be removed manually.
 

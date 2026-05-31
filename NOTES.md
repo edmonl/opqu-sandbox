@@ -8,6 +8,10 @@
   switch to stack-based early restore unless archive traversal becomes strictly
   depth-first. Prefer standard iterator helpers such as `slices.Backward` when
   they clarify reverse traversal.
+- `Compress` defers each source file close inside the `filepath.Walk` callback.
+  That defer is scoped to one callback invocation, so each file closes after its
+  entry is copied rather than staying open until the whole walk completes. Do
+  not flag this as file descriptor accumulation.
 - `sbx create` intentionally respects symlinked user-managed directories such
   as `rootfs`, `snapshots`, and `pkg-cache`; symlinks are a valid way to
   relocate them.
