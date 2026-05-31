@@ -9,10 +9,8 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -57,6 +55,34 @@ func RequireInactiveRootfs(path string) (bool, error) {
 	}
 
 	return true, err
+}
+
+// MkdirAllAsUser creates each path element under sbxDir and changes ownership of newly created directories to the sandbox user.
+func MkdirAllAsUser(conf *config.Config, sbxDir string, elem ...string) (string, error) {
+	path := sbxDir
+	changeOwner := os.Geteuid() != conf.SandboxUser.UID
+	for _, e := range elem {
+		path = filepath.Join(path, e)
+		if info, err := os.Stat(path); err == nil {
+			if !info.IsDir() {
+				return "", fmt.Errorf("%v exists but is not a directory", path)
+			}
+			continue
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("failed to access %v: %w", path, err)
+		}
+
+		if err := os.Mkdir(path, 0o755); err != nil {
+			return "", fmt.Errorf("failed to create directory %v: %w", path, err)
+		}
+		if changeOwner {
+			if err := util.ChownToUser(path, conf.SandboxUser); err != nil {
+				return "", err
+			}
+		}
+	}
+
+	return path, nil
 }
 
 // RemoveNspawnFile removes a generated nspawn file and its symlink in the best effort.
@@ -125,8 +151,8 @@ func EnsureStopped(name string) error {
 	return nil
 }
 
-// CreateSnapshot creates a zstd-compressed tarball of the rootfs and changes ownership to SUDO_USER if applicable.
-func CreateSnapshot(rootfsPath, snapshotsDir, snapshotName string) error {
+// CreateSnapshot creates a zstd-compressed tarball of the rootfs and changes ownership to owner if applicable.
+func CreateSnapshot(rootfsPath, snapshotsDir, snapshotName string, owner *util.User) error {
 	if rootfsExists, err := RequireInactiveRootfs(rootfsPath); err != nil {
 		return err
 	} else if !rootfsExists {
@@ -159,7 +185,7 @@ func CreateSnapshot(rootfsPath, snapshotsDir, snapshotName string) error {
 		return fmt.Errorf("failed to create snapshot from %v: %w", rootfsPath, err)
 	}
 
-	if err := changeOwner(snapshotPath); err != nil {
+	if err := util.ChownToUser(snapshotPath, owner); err != nil {
 		util.Warn("failed to change ownership of %v: %v", snapshotPath, err)
 	}
 
@@ -168,32 +194,6 @@ func CreateSnapshot(rootfsPath, snapshotsDir, snapshotName string) error {
 			if err := os.RemoveAll(old); err != nil {
 				util.Warn("failed to remove old snapshot %v: %v", old, err)
 			}
-		}
-	}
-
-	return nil
-}
-
-func changeOwner(path string) error {
-	uid := -1
-	gid := -1
-	if sudoUser := os.Getenv("SUDO_USER"); sudoUser != "" {
-		var u *user.User
-		var err error
-		if u, err = user.Lookup(sudoUser); err != nil {
-			return fmt.Errorf("failed to look up user %v: %w", sudoUser, err)
-		}
-		if uid, err = strconv.Atoi(u.Uid); err != nil {
-			return fmt.Errorf("invalid user ID %v for %v: %w", u.Uid, sudoUser, err)
-		}
-		if gid, err = strconv.Atoi(u.Gid); err != nil {
-			return fmt.Errorf("invalid group ID %v for %v: %w", u.Gid, sudoUser, err)
-		}
-	}
-
-	if uid >= 0 || gid >= 0 {
-		if err := os.Chown(path, uid, gid); err != nil {
-			return err
 		}
 	}
 

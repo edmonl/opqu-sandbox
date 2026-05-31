@@ -15,9 +15,9 @@ The directory layout is as follows:
 ```
 {sandbox directory}/
 ├── pkg-cache/                                   # shared .deb cache (mmdebstrap only)
-├── rootfs/                                      # owned by the user
+├── rootfs/                                      # rootfs parent, created by sbx
 │   ├── {name}/                                  # per-sandbox root filesystem (owned by root)
-│   └── {name}.nspawn                            # systemd-nspawn config
+│   └── {name}.nspawn                            # systemd-nspawn config (owned by root)
 ├── snapshots/                                   # sandbox snapshots
 │   └── {name}/                                  # per-sandbox
 │       ├── base.{timestamp}.tar.zst             # base snapshot
@@ -28,6 +28,8 @@ The directory layout is as follows:
     ├── {name}.packages                          # per-sandbox extra packages
     └── {name}.mounts                            # per-sandbox bind mounts
 ```
+
+If the sandbox directory does not exist, `sbx` creates that directory only. Its parent directory must already exist.
 
 The `conf/` directory is created and managed by the user when custom settings are needed to override defaults.
 Other files and directories are managed by `sbx`, but can be manually modified or pruned (e.g., `rm pkg-cache/*.deb`) without breaking `sbx`.
@@ -46,6 +48,7 @@ All configuration files are optional and located in the `conf/` directory.
 This dotenv-formatted file defines default settings for sandbox creation:
 
 ```bash
+# Global only; not supported in per-sandbox configuration:
 IMAGES_PATH=/var/lib/machines         # search path for machine images
 NSPAWN_FILES_PATH=/etc/systemd/nspawn # search path for nspawn files
 
@@ -53,13 +56,12 @@ NSPAWN_FILES_PATH=/etc/systemd/nspawn # search path for nspawn files
 DISTRO=stable
 MIRROR=http://deb.debian.org/debian
 VARIANT=standard             # standard = full usable base; required = minimal
-SANDBOX_USER=                # defaults to the current user at runtime if left empty
 RESOLV_CONF=auto             # for `--resolv-conf` of `systemd-nspawn`
 ROOT_USER_PASSWORD=          # if empty, root password is disabled (locked)
 NETWORK_ZONE=opqu-sbx        # logical network group; max 12 characters
 ```
 
-An empty value indicates that the default should be used. See [User Model](user-model.md) for more details about `ROOT_USER_PASSWORD`.
+An empty value indicates that the default should be used. See [User Model](user-model.md) for more details about sandbox users and `ROOT_USER_PASSWORD`.
 
 `IMAGES_PATH` is the directory where `machinectl` searches for images (refer to the `machinectl` man page on Debian). `sbx` creates a symlink in `IMAGES_PATH` pointing to `{sandbox directory}/rootfs/{name}` for each sandbox `{name}`.
 

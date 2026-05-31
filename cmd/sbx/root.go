@@ -1,11 +1,14 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 
+	"github.com/edmonl/opqu-sandbox/internal/util"
 	"github.com/spf13/cobra"
 )
 
@@ -32,8 +35,8 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("sandbox directory path %v cannot contain whitespace", sbxDir)
 		}
 
-		if err := os.MkdirAll(sbxDir, 0755); err != nil {
-			return fmt.Errorf("failed to create sandbox directory %v: %w", sbxDir, err)
+		if err := ensureSbxDir(sbxDir); err != nil {
+			return err
 		}
 
 		return nil
@@ -41,6 +44,40 @@ var rootCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return cmd.Help()
 	},
+}
+
+func ensureSbxDir(path string) error {
+	if info, err := os.Stat(path); err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("sandbox directory %v is not a directory", path)
+		}
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("failed to access sandbox directory %v: %w", path, err)
+	}
+
+	if info, err := os.Stat(filepath.Dir(path)); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("failed to create sandbox directory %v: parent directory does not exist", path)
+		}
+		return fmt.Errorf("failed to access parent of sandbox directory %v: %w", path, err)
+	} else if !info.IsDir() {
+		return fmt.Errorf("failed to create sandbox directory %v: parent path is not a directory", path)
+	}
+
+	if err := os.Mkdir(path, 0o755); err != nil {
+		return fmt.Errorf("failed to create sandbox directory %v: %w", path, err)
+	}
+	invokingUser, err := util.InvokingUser()
+	if err != nil {
+		return err
+	}
+	if os.Geteuid() != invokingUser.UID {
+		if err := util.ChownToUser(path, invokingUser); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func init() {

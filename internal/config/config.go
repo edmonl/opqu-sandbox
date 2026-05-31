@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/user"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"github.com/edmonl/opqu-sandbox/internal/util"
 	"github.com/joho/godotenv"
 )
 
@@ -25,7 +25,7 @@ type Config struct {
 	Distro          string
 	Mirror          string
 	Variant         string
-	SandboxUser     *user.User
+	SandboxUser     *util.User
 	Ports           []string
 	NetworkZone     string
 	ResolvConf      string
@@ -36,6 +36,16 @@ type Config struct {
 
 var zoneRegex = regexp.MustCompile(`^[a-z0-9-]+$`)
 var passwordRegex = regexp.MustCompile(`^\P{C}+$`)
+
+var sandboxConfigKeys = map[string]struct{}{
+	"DISTRO":             {},
+	"MIRROR":             {},
+	"VARIANT":            {},
+	"NETWORK_ZONE":       {},
+	"RESOLV_CONF":        {},
+	"ROOT_USER_PASSWORD": {},
+	"PORTS":              {},
+}
 
 func loadConfFile(path string) (map[string]string, error) {
 	conf, err := godotenv.Read(path)
@@ -56,11 +66,17 @@ func LoadConf(sbxDir, name string) (*Config, error) {
 
 	// Load <name>.conf
 	if name != "" {
-		sandboxConf, err := loadConfFile(filepath.Join(sbxDir, "conf", name+".conf"))
-		if err != nil {
-			return nil, err
+		sandboxConf, e := loadConfFile(filepath.Join(sbxDir, "conf", name+".conf"))
+		if e != nil {
+			return nil, e
 		}
 		for k, v := range sandboxConf {
+			if _, ok := sandboxConfigKeys[k]; !ok {
+				if v != "" {
+					return nil, fmt.Errorf("failed to load configuration: %v is not supported in per-sandbox configuration", k)
+				}
+				continue
+			}
 			if v != "" {
 				rawConf[k] = v
 			}
@@ -118,28 +134,15 @@ func LoadConf(sbxDir, name string) (*Config, error) {
 	}
 
 	if v := rawConf["PORTS"]; v != "" {
-		ports, err := parsePorts(v)
-		if err != nil {
-			return nil, err
+		ports, e := parsePorts(v)
+		if e != nil {
+			return nil, e
 		}
 		conf.Ports = ports
 	}
 
-	userName := rawConf["SANDBOX_USER"]
-	if userName == "" && os.Geteuid() == 0 {
-		userName = os.Getenv("SUDO_USER")
-	}
-
-	if userName == "" {
-		if u, err := user.Current(); err == nil {
-			conf.SandboxUser = u
-		} else {
-			return nil, fmt.Errorf("failed to get current user: %w", err)
-		}
-	} else if u, err := user.Lookup(userName); err == nil {
-		conf.SandboxUser = u
-	} else {
-		return nil, fmt.Errorf("failed to find user %v: %w", userName, err)
+	if conf.SandboxUser, err = util.InvokingUser(); err != nil {
+		return nil, err
 	}
 
 	return conf, nil
@@ -219,7 +222,7 @@ func LoadPackages(sbxDir, name string) ([]string, error) {
 var mountRegex = regexp.MustCompile(`^([^:]*)(?::([^:]*))?(:ro)?$`)
 
 // LoadMounts loads the mount list for the named sandbox.
-func LoadMounts(sbxDir, name string, u *user.User) ([]*Mount, error) {
+func LoadMounts(sbxDir, name string, u *util.User) ([]*Mount, error) {
 	mountsPath := filepath.Join(sbxDir, "conf", name+".mounts")
 	mountLines, err := loadLines(mountsPath)
 	if err != nil {

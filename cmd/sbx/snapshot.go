@@ -1,10 +1,9 @@
 package main
 
 import (
-	"fmt"
-	"os"
 	"path/filepath"
 
+	"github.com/edmonl/opqu-sandbox/internal/config"
 	"github.com/edmonl/opqu-sandbox/internal/sandbox"
 	"github.com/spf13/cobra"
 )
@@ -24,16 +23,21 @@ var snapshotCmd = &cobra.Command{
 			return err
 		}
 
-		snapshotsDir := filepath.Join(sbxDir, "snapshots", name)
-		if err := os.MkdirAll(snapshotsDir, 0o755); err != nil {
-			return fmt.Errorf("failed to create snapshots directory %v: %w", snapshotsDir, err)
+		conf, err := config.LoadConf(sbxDir, name)
+		if err != nil {
+			return err
+		}
+
+		snapshotsDir, err := sandbox.MkdirAllAsUser(conf, sbxDir, "snapshots", name)
+		if err != nil {
+			return err
 		}
 
 		if err := sandbox.Sudo(sbxDir); err != nil {
 			return err
 		}
 
-		if err := sandbox.CreateSnapshot(filepath.Join(sbxDir, "rootfs", name), snapshotsDir, snapshotName); err != nil {
+		if err := sandbox.CreateSnapshot(filepath.Join(sbxDir, "rootfs", name), snapshotsDir, snapshotName, conf.SandboxUser); err != nil {
 			return err
 		}
 

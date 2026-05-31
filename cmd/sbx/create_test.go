@@ -8,14 +8,19 @@ import (
 	"testing"
 
 	"github.com/edmonl/opqu-sandbox/internal/config"
+	"github.com/edmonl/opqu-sandbox/internal/util"
 )
 
 func TestGetSetupScript(t *testing.T) {
 	conf := &config.Config{
-		SandboxUser: &user.User{
-			Username: "testuser",
-			Uid:      "1000",
-			Gid:      "1000",
+		SandboxUser: &util.User{
+			User: &user.User{
+				Username: "testuser",
+				Uid:      "1000",
+				Gid:      "1000",
+			},
+			UID: 1000,
+			GID: 1000,
 		},
 		RootPassword: "rootpassword",
 	}
@@ -43,10 +48,14 @@ func TestGetSetupScript(t *testing.T) {
 
 func TestGetSetupScriptNoRootPassword(t *testing.T) {
 	conf := &config.Config{
-		SandboxUser: &user.User{
-			Username: "testuser",
-			Uid:      "1000",
-			Gid:      "1000",
+		SandboxUser: &util.User{
+			User: &user.User{
+				Username: "testuser",
+				Uid:      "1000",
+				Gid:      "1000",
+			},
+			UID: 1000,
+			GID: 1000,
 		},
 		RootPassword: "",
 	}
@@ -59,10 +68,14 @@ func TestGetSetupScriptNoRootPassword(t *testing.T) {
 
 func TestGetSetupScriptRootUser(t *testing.T) {
 	conf := &config.Config{
-		SandboxUser: &user.User{
-			Username: "root",
-			Uid:      "0",
-			Gid:      "0",
+		SandboxUser: &util.User{
+			User: &user.User{
+				Username: "root",
+				Uid:      "0",
+				Gid:      "0",
+			},
+			UID: 0,
+			GID: 0,
 		},
 		RootPassword: "rootpassword",
 	}
@@ -101,70 +114,5 @@ func TestWriteSandboxFiles(t *testing.T) {
 	}
 	if !strings.Contains(string(hosts), "127.0.1.1\tmysandbox\n") {
 		t.Errorf("hosts does not contain sandbox hostname: %q", string(hosts))
-	}
-}
-
-func TestCreateDirCreatesDirectory(t *testing.T) {
-	tmpDir := t.TempDir()
-	rootfsPath := filepath.Join(tmpDir, "rootfs")
-
-	if _, err := createDir(tmpDir, "rootfs"); err != nil {
-		t.Fatalf("createDir failed: %v", err)
-	}
-	if info, err := os.Stat(rootfsPath); err != nil {
-		t.Fatalf("failed to stat rootfs directory: %v", err)
-	} else if !info.IsDir() {
-		t.Fatalf("rootfs path is not a directory")
-	}
-}
-
-func TestCreateDirKeepsExistingDirectory(t *testing.T) {
-	tmpDir := t.TempDir()
-	rootfsPath := filepath.Join(tmpDir, "rootfs")
-
-	if err := os.Mkdir(rootfsPath, 0o755); err != nil {
-		t.Fatalf("failed to create rootfs directory: %v", err)
-	}
-	if _, err := createDir(tmpDir, "rootfs"); err != nil {
-		t.Fatalf("createDir rejected an existing directory: %v", err)
-	}
-}
-
-func TestCreateDirAcceptsExistingSymlink(t *testing.T) {
-	tmpDir := t.TempDir()
-	target := filepath.Join(tmpDir, "target")
-	if err := os.Mkdir(target, 0o755); err != nil {
-		t.Fatalf("failed to create target directory: %v", err)
-	}
-
-	rootfsPath := filepath.Join(tmpDir, "rootfs")
-
-	if err := os.Symlink(target, rootfsPath); err != nil {
-		t.Fatalf("failed to create rootfs symlink: %v", err)
-	}
-	if _, err := createDir(tmpDir, "rootfs"); err != nil {
-		t.Fatalf("createDir rejected an existing symlink: %v", err)
-	}
-}
-
-func TestCreateDirAcceptsSymlinkParent(t *testing.T) {
-	tmpDir := t.TempDir()
-	target := filepath.Join(tmpDir, "target")
-	if err := os.Mkdir(target, 0o755); err != nil {
-		t.Fatalf("failed to create target directory: %v", err)
-	}
-
-	link := filepath.Join(tmpDir, "link")
-	if err := os.Symlink(target, link); err != nil {
-		t.Fatalf("failed to create parent symlink: %v", err)
-	}
-
-	if _, err := createDir(tmpDir, "link", "child"); err != nil {
-		t.Fatalf("createDir rejected a symlink parent: %v", err)
-	}
-	if info, err := os.Stat(filepath.Join(target, "child")); err != nil {
-		t.Fatalf("failed to stat child through symlink parent: %v", err)
-	} else if !info.IsDir() {
-		t.Fatal("child path is not a directory")
 	}
 }

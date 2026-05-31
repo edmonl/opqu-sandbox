@@ -3,6 +3,8 @@ package util
 import (
 	"io"
 	"os"
+	"os/user"
+	"strings"
 	"testing"
 )
 
@@ -91,6 +93,72 @@ func TestEscapeShellArg(t *testing.T) {
 			actual := EscapeShellArg(tt.input)
 			if actual != tt.expected {
 				t.Errorf("EscapeShellArg(%v) = %v, expected %v", tt.input, actual, tt.expected)
+			}
+		})
+	}
+}
+
+func TestUserParsesIDs(t *testing.T) {
+	rawUser := &user.User{
+		Username: "testuser",
+		Uid:      "1001",
+		Gid:      "1002",
+		HomeDir:  "/home/testuser",
+	}
+
+	u, err := newUser(rawUser)
+	if err != nil {
+		t.Fatalf("newUser failed: %v", err)
+	}
+
+	if u.User != rawUser {
+		t.Fatal("newUser did not preserve embedded user")
+	}
+	if u.Username != "testuser" || u.HomeDir != "/home/testuser" {
+		t.Fatalf("newUser did not promote embedded user fields: %+v", u)
+	}
+	if u.UID != 1001 {
+		t.Fatalf("UID = %v, want 1001", u.UID)
+	}
+	if u.GID != 1002 {
+		t.Fatalf("GID = %v, want 1002", u.GID)
+	}
+}
+
+func TestUserRejectsInvalidIDs(t *testing.T) {
+	tests := []struct {
+		name    string
+		u       *user.User
+		wantErr string
+	}{
+		{
+			name: "invalid uid",
+			u: &user.User{
+				Username: "testuser",
+				Uid:      "not-a-uid",
+				Gid:      "1002",
+			},
+			wantErr: "invalid user ID",
+		},
+		{
+			name: "invalid gid",
+			u: &user.User{
+				Username: "testuser",
+				Uid:      "1001",
+				Gid:      "not-a-gid",
+			},
+			wantErr: "invalid group ID",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := newUser(tt.u)
+			if err == nil {
+				t.Fatal("newUser succeeded unexpectedly")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("newUser error = %q, want substring %q", err, tt.wantErr)
 			}
 		})
 	}

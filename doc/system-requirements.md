@@ -86,8 +86,10 @@ Ensure your firewall does not block virtual network traffic by verifying the fol
 
 ### User Requirement
 
-The user specified by `SANDBOX_USER` (see [Configuration](configuration.md#configuration-files)) must exist on the host before running `sbx create`.
-This ensures consistent ownership for bind-mounted files across the host and sandbox, avoiding the need for user namespaces or UID remapping.
+The invoking user must exist on the host before running `sbx create`.
+This user is mirrored inside the sandbox so bind-mounted files keep consistent ownership across the host and sandbox without user namespaces or UID remapping.
+
+`sbx` does not broadly manage ownership of existing user-managed files. If an existing sandbox directory, cache, configuration directory, or snapshot directory has unsuitable ownership or permissions, fix it with normal system administration tools before retrying the command.
 
 ### Privileges
 

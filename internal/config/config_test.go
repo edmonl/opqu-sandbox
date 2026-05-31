@@ -5,6 +5,8 @@ import (
 	"os/user"
 	"path/filepath"
 	"testing"
+
+	"github.com/edmonl/opqu-sandbox/internal/util"
 )
 
 func TestLoadPackages(t *testing.T) {
@@ -56,6 +58,7 @@ func TestLoadMounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get current user: %v", err)
 	}
+	testUser := &util.User{User: u}
 
 	testFile := filepath.Join(confDir, "test.mounts")
 
@@ -73,7 +76,7 @@ relative/path:/abs/path
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
-	mounts, err := LoadMounts(tmpDir, "test", u)
+	mounts, err := LoadMounts(tmpDir, "test", testUser)
 	if err != nil {
 		t.Fatalf("LoadMounts failed: %v", err)
 	}
@@ -98,7 +101,7 @@ relative/path:/abs/path
 	}
 
 	// 3. /home/user/data
-	expectedHomeData := filepath.Join(u.HomeDir, "data")
+	expectedHomeData := filepath.Join(testUser.HomeDir, "data")
 	if m := mountMap["/home/user/data"]; m == nil || m.HostPath != expectedHomeData {
 		t.Errorf("Unexpected mount for /home/user/data: %+v", m)
 	}
@@ -190,6 +193,13 @@ func TestLoadConf_DefaultValues(t *testing.T) {
 	if conf.NetworkZone != "opqu-sbx" {
 		t.Errorf("Expected default network zone opqu-sbx, got %v", conf.NetworkZone)
 	}
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Fatalf("user.Current failed: %v", err)
+	}
+	if conf.SandboxUser.Username != currentUser.Username {
+		t.Errorf("Expected sandbox user %v, got %v", currentUser.Username, conf.SandboxUser.Username)
+	}
 }
 
 func TestLoadConf_Override(t *testing.T) {
@@ -231,7 +241,11 @@ func TestLoadMounts_EdgeCases(t *testing.T) {
 	confDir := filepath.Join(tmpDir, "conf")
 	os.MkdirAll(confDir, 0755)
 
-	u, _ := user.Current()
+	u, err := user.Current()
+	if err != nil {
+		t.Fatalf("user.Current failed: %v", err)
+	}
+	testUser := &util.User{User: u}
 
 	tests := []struct {
 		name    string
@@ -263,7 +277,7 @@ func TestLoadMounts_EdgeCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			os.WriteFile(filepath.Join(confDir, "test.mounts"), []byte(tt.content), 0644)
-			_, err := LoadMounts(tmpDir, "test", u)
+			_, err := LoadMounts(tmpDir, "test", testUser)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("LoadMounts() error = %v, wantErr %v", err, tt.wantErr)
 			}

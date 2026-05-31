@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/edmonl/opqu-sandbox/internal/config"
+	"github.com/edmonl/opqu-sandbox/internal/util"
 )
 
 func TestValidateName(t *testing.T) {
@@ -111,7 +112,7 @@ func TestRemoveNspawnFileRemovesFile(t *testing.T) {
 	nspawnSymlinkPath := filepath.Join(tmpDir, "nspawn", "test.nspawn")
 	conf := &config.Config{
 		NspawnFilesPath: filepath.Join(tmpDir, "nspawn"),
-		SandboxUser:     &user.User{Username: "test"},
+		SandboxUser:     &util.User{User: &user.User{Username: "test"}},
 	}
 
 	if err := os.MkdirAll(filepath.Dir(nspawnPath), 0o755); err != nil {
@@ -143,7 +144,7 @@ func TestRemoveNspawnFileKeepsRepointedSymlink(t *testing.T) {
 	otherTarget := filepath.Join(tmpDir, "other.nspawn")
 	conf := &config.Config{
 		NspawnFilesPath: filepath.Join(tmpDir, "nspawn"),
-		SandboxUser:     &user.User{Username: "test"},
+		SandboxUser:     &util.User{User: &user.User{Username: "test"}},
 	}
 
 	if err := os.MkdirAll(filepath.Dir(nspawnPath), 0o755); err != nil {
@@ -182,7 +183,7 @@ func TestRemoveNspawnFileRejectsNonRegularFile(t *testing.T) {
 	childPath := filepath.Join(nspawnPath, "child")
 	conf := &config.Config{
 		NspawnFilesPath: filepath.Join(tmpDir, "nspawn"),
-		SandboxUser:     &user.User{Username: "test"},
+		SandboxUser:     &util.User{User: &user.User{Username: "test"}},
 	}
 
 	if err := os.MkdirAll(nspawnPath, 0o755); err != nil {
@@ -202,6 +203,7 @@ func TestCreateSnapshotRejectsNonDirectoryRootfs(t *testing.T) {
 	tmpDir := t.TempDir()
 	rootfsPath := filepath.Join(tmpDir, "rootfs")
 	snapshotsDir := filepath.Join(tmpDir, "snapshots")
+	owner := currentTestUser(t)
 
 	if err := os.WriteFile(rootfsPath, []byte("not a directory"), 0o644); err != nil {
 		t.Fatalf("failed to create rootfs file: %v", err)
@@ -210,7 +212,7 @@ func TestCreateSnapshotRejectsNonDirectoryRootfs(t *testing.T) {
 		t.Fatalf("failed to create snapshots directory: %v", err)
 	}
 
-	err := CreateSnapshot(rootfsPath, snapshotsDir, "test")
+	err := CreateSnapshot(rootfsPath, snapshotsDir, "test", owner)
 	if err == nil {
 		t.Fatal("CreateSnapshot accepted a non-directory rootfs")
 	}
@@ -232,6 +234,7 @@ func TestCreateSnapshotRejectsSymlinkRootfs(t *testing.T) {
 	targetPath := filepath.Join(tmpDir, "target")
 	rootfsPath := filepath.Join(tmpDir, "rootfs")
 	snapshotsDir := filepath.Join(tmpDir, "snapshots")
+	owner := currentTestUser(t)
 
 	if err := os.Mkdir(targetPath, 0o755); err != nil {
 		t.Fatalf("failed to create target directory: %v", err)
@@ -243,7 +246,7 @@ func TestCreateSnapshotRejectsSymlinkRootfs(t *testing.T) {
 		t.Fatalf("failed to create snapshots directory: %v", err)
 	}
 
-	err := CreateSnapshot(rootfsPath, snapshotsDir, "test")
+	err := CreateSnapshot(rootfsPath, snapshotsDir, "test", owner)
 	if err == nil {
 		t.Fatal("CreateSnapshot accepted a symlink rootfs")
 	}
@@ -256,6 +259,7 @@ func TestCreateSnapshotArchivesInactiveRootfs(t *testing.T) {
 	tmpDir := t.TempDir()
 	rootfsPath := filepath.Join(tmpDir, "rootfs")
 	snapshotsDir := filepath.Join(tmpDir, "snapshots")
+	owner := currentTestUser(t)
 
 	if err := os.Mkdir(rootfsPath, 0o755); err != nil {
 		t.Fatalf("failed to create rootfs: %v", err)
@@ -267,7 +271,7 @@ func TestCreateSnapshotArchivesInactiveRootfs(t *testing.T) {
 		t.Fatalf("failed to create snapshots directory: %v", err)
 	}
 
-	if err := CreateSnapshot(rootfsPath, snapshotsDir, "test"); err != nil {
+	if err := CreateSnapshot(rootfsPath, snapshotsDir, "test", owner); err != nil {
 		t.Fatalf("CreateSnapshot failed: %v", err)
 	}
 
@@ -278,4 +282,13 @@ func TestCreateSnapshotArchivesInactiveRootfs(t *testing.T) {
 	if len(matches) != 1 {
 		t.Fatalf("snapshot count = %d, want 1: %v", len(matches), matches)
 	}
+}
+
+func currentTestUser(t *testing.T) *util.User {
+	t.Helper()
+	u, err := util.InvokingUser()
+	if err != nil {
+		t.Fatalf("failed to get invoking user: %v", err)
+	}
+	return u
 }

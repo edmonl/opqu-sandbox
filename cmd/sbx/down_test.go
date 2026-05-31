@@ -2,12 +2,12 @@ package main
 
 import (
 	"os"
-	"os/user"
 	"path/filepath"
 	"testing"
 
 	"github.com/edmonl/opqu-sandbox/internal/config"
 	"github.com/edmonl/opqu-sandbox/internal/sandbox"
+	"github.com/edmonl/opqu-sandbox/internal/util"
 )
 
 func TestRemoveNspawnFileRemovesManagedSymlinkAndFile(t *testing.T) {
@@ -16,7 +16,7 @@ func TestRemoveNspawnFileRemovesManagedSymlinkAndFile(t *testing.T) {
 	nspawnSymlinkPath := filepath.Join(tmpDir, "nspawn", "test.nspawn")
 	conf := &config.Config{
 		NspawnFilesPath: filepath.Join(tmpDir, "nspawn"),
-		SandboxUser:     &user.User{Username: "test"},
+		SandboxUser:     &util.User{},
 	}
 
 	if err := os.MkdirAll(filepath.Dir(nspawnFile), 0o755); err != nil {

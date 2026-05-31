@@ -25,26 +25,6 @@ var createCmd = &cobra.Command{
 			return err
 		}
 
-		// create those dirs with current user
-		rootfsDir, err := createDir(sbxDir, "rootfs")
-		if err != nil {
-			return err
-		}
-		snapshotsDir, err := createDir(sbxDir, "snapshots", name)
-		if err != nil {
-			return err
-		}
-		pkgCache, err := createDir(sbxDir, "pkg-cache")
-		if err != nil {
-			return err
-		}
-
-		// sudo
-		if e := sandbox.Sudo(sbxDir); e != nil {
-			return e
-		}
-
-		// conf
 		conf, err := config.LoadConf(sbxDir, name)
 		if err != nil {
 			return err
@@ -52,6 +32,24 @@ var createCmd = &cobra.Command{
 		packages, err := config.LoadPackages(sbxDir, name)
 		if err != nil {
 			return err
+		}
+
+		rootfsDir, err := sandbox.MkdirAllAsUser(conf, sbxDir, "rootfs")
+		if err != nil {
+			return err
+		}
+		snapshotsDir, err := sandbox.MkdirAllAsUser(conf, sbxDir, "snapshots", name)
+		if err != nil {
+			return err
+		}
+		pkgCache, err := sandbox.MkdirAllAsUser(conf, sbxDir, "pkg-cache")
+		if err != nil {
+			return err
+		}
+
+		// sudo
+		if e := sandbox.Sudo(sbxDir); e != nil {
+			return e
 		}
 
 		// check
@@ -104,6 +102,24 @@ var createCmd = &cobra.Command{
 			if err := util.RunCmd("mmdebstrap", mmdebstrapArgs...); err != nil {
 				return fmt.Errorf("provisioning sandbox %v with mmdebstrap failed: %w", name, err)
 			}
+			// Clean up apt partial directory to prevent permission errors for unprivileged users
+			if err := os.RemoveAll(filepath.Join(pkgCache, "partial")); err != nil {
+				util.Warn("failed to delete pkg-cache/partial: %v", err)
+			}
+
+			if entries, err := os.ReadDir(pkgCache); err != nil {
+				util.Warn("failed to restore pkg-cache ownership: %v", err)
+			} else {
+				for _, entry := range entries {
+					if !entry.Type().IsRegular() {
+						util.Warn("unexpected entry %v in pkg-cache", entry.Name())
+						continue
+					}
+					if err := util.ChownToUser(filepath.Join(pkgCache, entry.Name()), conf.SandboxUser); err != nil {
+						util.Warn("%v", err)
+					}
+				}
+			}
 		} else if _, err := exec.LookPath("debootstrap"); err == nil {
 			debootstrapArgs := []string{
 				"--variant=" + conf.Variant,
@@ -136,17 +152,12 @@ var createCmd = &cobra.Command{
 			return err
 		}
 
-		// Clean up apt partial directory to prevent permission errors for unprivileged users
-		if err := os.RemoveAll(filepath.Join(pkgCache, "partial")); err != nil {
-			util.Warn("failed to delete pkg-cache/partial: %v", err)
-		}
-
 		if err := sandbox.CreateSymlink(sandboxFs, filepath.Join(conf.ImagesPath, name)); err != nil {
 			return fmt.Errorf("failed to create sandbox image symlink: %w", err)
 		}
 		createSuccess = true
 
-		if err := sandbox.CreateSnapshot(sandboxFs, snapshotsDir, "base"); err != nil {
+		if err := sandbox.CreateSnapshot(sandboxFs, snapshotsDir, "base", conf.SandboxUser); err != nil {
 			util.Warn("failed to create base snapshot: %v", err)
 		}
 
@@ -157,9 +168,9 @@ var createCmd = &cobra.Command{
 func getSetupScript(conf *config.Config) string {
 	commands := []string{"set -e"}
 
-	uid := conf.SandboxUser.Uid
-	if uid != "0" {
-		gid := conf.SandboxUser.Gid
+	uid := conf.SandboxUser.UID
+	if uid != 0 {
+		gid := conf.SandboxUser.GID
 		escapedUserName := util.EscapeShellArg(conf.SandboxUser.Username)
 		commands = append(commands,
 			fmt.Sprintf("groupadd -g %v %v", gid, escapedUserName),
@@ -197,14 +208,6 @@ ff02::2	ip6-allrouters
 	}
 
 	return nil
-}
-
-func createDir(elem ...string) (string, error) {
-	path := filepath.Join(elem...)
-	if err := os.MkdirAll(path, 0o755); err != nil {
-		return "", fmt.Errorf("failed to create directory %v: %w", path, err)
-	}
-	return path, nil
 }
 
 func init() {

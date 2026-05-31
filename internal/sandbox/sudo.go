@@ -63,7 +63,7 @@ func Sudo(sbxDir string) error {
 			args = append(args, util.EscapeShellArg(arg))
 		}
 
-		// When using su, we should manually set SUDO_USER so LoadConf works
+		// When using su, manually set SUDO_USER so the invoking user remains available after escalation.
 		u, userErr := user.Current()
 		if userErr != nil {
 			return fmt.Errorf("failed to get current user: %w", userErr)
