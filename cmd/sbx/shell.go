@@ -5,6 +5,7 @@ import (
 
 	"github.com/edmonl/opqu-sandbox/internal/config"
 	"github.com/edmonl/opqu-sandbox/internal/sandbox"
+	"github.com/edmonl/opqu-sandbox/internal/util"
 	"github.com/spf13/cobra"
 )
 
@@ -31,7 +32,7 @@ var shellCmd = &cobra.Command{
 			execArgs = append(execArgs, args[1:]...)
 		}
 
-		return sandbox.RunCmd("machinectl", execArgs...)
+		return util.RunCmd("machinectl", execArgs...)
 	},
 }
 
