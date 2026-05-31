@@ -10,9 +10,10 @@ import (
 )
 
 var shellCmd = &cobra.Command{
-	Use:   "shell [name] [command...]",
-	Short: "Open a shell or run a command inside a running sandbox",
-	Args:  cobra.MinimumNArgs(1),
+	Use:     "shell [name] [command...]",
+	Aliases: []string{"s"},
+	Short:   "Open a shell or run a command inside a running sandbox",
+	Args:    cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		if err := sandbox.ValidateName(name); err != nil {
