@@ -4,20 +4,13 @@
 
 ## Minor Issues
 
-1. Snapshot creation can overwrite the previous archive when repeated within the same second.
-
-   `CreateSnapshot` writes directly to `{snapshot name}.{timestamp}.tar.zst`
-   using second-level timestamp precision. If a snapshot with the same name is
-   recreated in the same second and compression fails, the old archive may be
-   truncated and then removed.
-
-2. `IsRunning` treats any `machinectl show` exit status as not running.
+1. `IsRunning` treats any `machinectl show` exit status as not running.
 
    A missing machine should be treated as stopped, but other non-zero failures
    such as DBus, polkit, or systemd errors should be reported instead of letting
    callers proceed on an unknown state.
 
-3. `sbx shell` does not use the standard sudo escalation flow.
+2. `sbx shell` does not use the standard sudo escalation flow.
 
    On hosts where `machinectl shell` requires root, normal users get a raw
    command failure instead of the confirmation and re-exec behavior used by
@@ -44,3 +37,6 @@
 8. `createNspawnFile` does not use `O_NOFOLLOW` when writing the nspawn file. It just handles a rare theoretically possible case but not worth the extra low-level file-open complexity for the current local root-run workflow.
 
 9. `sbx create` help does not explicitly say base snapshot creation is best-effort. Runtime behavior makes the best-effort nature visible by warning. Help should remain concise.
+
+10. `CreateSnapshot` writes to `{snapshot name}.{timestamp}.tar.zst` with second-level timestamp precision. If a snapshot with the same name is recreated in the same second and compression fails, the old archive may be truncated and then removed.
+
