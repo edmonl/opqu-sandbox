@@ -2,12 +2,6 @@
 
 ## Major Issues
 
-1. Archive extraction does not restore regular file modes after creation.
-
-   `Extract` creates regular files with the archived mode, but does not call
-   `chmod` after writing them. The process umask can silently strip permission
-   bits, making restored snapshots differ from the original rootfs.
-
 ## Minor Issues
 
 1. Snapshot creation can overwrite the previous archive when repeated within the same second.
