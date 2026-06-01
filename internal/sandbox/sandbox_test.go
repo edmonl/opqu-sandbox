@@ -32,6 +32,102 @@ func TestValidateName(t *testing.T) {
 	}
 }
 
+func TestIsRunningReportsListedMachine(t *testing.T) {
+	installFakeMachinectl(t)
+	t.Setenv("MACHINECTL_FAKE_MODE", "running")
+
+	running, err := IsRunning("test")
+	if err != nil {
+		t.Fatalf("IsRunning failed: %v", err)
+	}
+	if !running {
+		t.Fatal("IsRunning returned false for listed machine")
+	}
+}
+
+func TestIsRunningReportsUnlistedMachineNotRunning(t *testing.T) {
+	installFakeMachinectl(t)
+	t.Setenv("MACHINECTL_FAKE_MODE", "other")
+
+	running, err := IsRunning("test")
+	if err != nil {
+		t.Fatalf("IsRunning failed: %v", err)
+	}
+	if running {
+		t.Fatal("IsRunning returned true for unlisted machine")
+	}
+}
+
+func TestIsRunningReturnsMachinectlListError(t *testing.T) {
+	installFakeMachinectl(t)
+	t.Setenv("MACHINECTL_FAKE_MODE", "error")
+
+	running, err := IsRunning("test")
+	if err == nil {
+		t.Fatal("IsRunning succeeded when machinectl list failed")
+	}
+	if running {
+		t.Fatal("IsRunning returned true with an error")
+	}
+	if !strings.Contains(err.Error(), "DBus unavailable") {
+		t.Fatalf("IsRunning error = %q, want machinectl stderr", err)
+	}
+}
+
+func TestIsRunningReturnsJSONError(t *testing.T) {
+	installFakeMachinectl(t)
+	t.Setenv("MACHINECTL_FAKE_MODE", "bad-json")
+
+	running, err := IsRunning("test")
+	if err == nil {
+		t.Fatal("IsRunning succeeded with invalid machinectl JSON")
+	}
+	if running {
+		t.Fatal("IsRunning returned true with an error")
+	}
+	if !strings.Contains(err.Error(), "failed to parse machinectl output") {
+		t.Fatalf("IsRunning error = %q, want JSON parse context", err)
+	}
+}
+
+func installFakeMachinectl(t *testing.T) {
+	t.Helper()
+
+	binDir := t.TempDir()
+	machinectlPath := filepath.Join(binDir, "machinectl")
+	script := `#!/bin/sh
+if [ "$1" != "list" ] || [ "$2" != "--output=json" ]; then
+	echo "unexpected arguments: $*" >&2
+	exit 64
+fi
+
+case "$MACHINECTL_FAKE_MODE" in
+	running)
+		printf '[{"machine":"test"}]\n'
+		;;
+	other)
+		printf '[{"machine":"other"}]\n'
+		;;
+	bad-json)
+		printf 'not json\n'
+		;;
+	error)
+		echo "DBus unavailable" >&2
+		exit 1
+		;;
+	*)
+		echo "missing fake mode" >&2
+		exit 2
+		;;
+esac
+`
+	if err := os.WriteFile(machinectlPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("failed to write fake machinectl: %v", err)
+	}
+
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
 func TestCreateSymlinkCreatesMissingLink(t *testing.T) {
 	tmpDir := t.TempDir()
 	targetPath := filepath.Join(tmpDir, "target")

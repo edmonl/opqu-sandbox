@@ -3,9 +3,9 @@ package sandbox
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -118,19 +118,38 @@ func RemoveNspawnFile(sbxDir, name string, conf *config.Config) {
 	}
 }
 
+type runningMachineInfo struct {
+	Machine string `json:"machine"`
+}
+
 // IsRunning checks whether the sandbox with the specified name is currently running via machinectl.
 func IsRunning(name string) (bool, error) {
-	cmd := exec.Command("machinectl", "show", name, "--property=State", "--value")
-	cmd.Stderr = io.Discard
-	output, err := cmd.Output()
-	if err == nil {
-		return strings.TrimSpace(string(output)) == "running", nil
+	// `machinectl show NAME` reports a missing machine through undocumented stderr
+	// text, so avoid parsing that diagnostic. `machinectl list` documents that it
+	// lists running machines, making absence from the list a reliable not-running
+	// result while still surfacing list/DBus/polkit failures.
+	cmd := exec.Command("machinectl", "list", "--output=json")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		outputText := strings.TrimSpace(string(output))
+		if outputText == "" {
+			return false, fmt.Errorf("failed to list running sandboxes with machinectl: %w", err)
+		}
+		return false, fmt.Errorf("failed to list running sandboxes with machinectl: %w: %s", err, outputText)
 	}
 
-	if _, ok := errors.AsType[*exec.ExitError](err); ok {
-		return false, nil
+	var machines []runningMachineInfo
+	if err := json.Unmarshal(output, &machines); err != nil {
+		return false, fmt.Errorf("failed to parse machinectl output: %w", err)
 	}
-	return false, fmt.Errorf("failed to get sandbox state with machinectl: %w", err)
+
+	for _, machine := range machines {
+		if machine.Machine == name {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // EnsureStopped verifies that the sandbox is not running, returning an error if it is active or invalid.

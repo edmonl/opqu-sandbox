@@ -4,13 +4,7 @@
 
 ## Minor Issues
 
-1. `IsRunning` treats any `machinectl show` exit status as not running.
-
-   A missing machine should be treated as stopped, but other non-zero failures
-   such as DBus, polkit, or systemd errors should be reported instead of letting
-   callers proceed on an unknown state.
-
-2. `sbx shell` does not use the standard sudo escalation flow.
+1. `sbx shell` does not use the standard sudo escalation flow.
 
    On hosts where `machinectl shell` requires root, normal users get a raw
    command failure instead of the confirmation and re-exec behavior used by
