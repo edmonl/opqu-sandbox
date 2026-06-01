@@ -199,7 +199,7 @@ func Extract(srcFile, destDir string) error {
 			if err := requireParentDir(target); err != nil {
 				return fmt.Errorf("failed to extract regular file %v: %w", header.Name, err)
 			}
-			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode))
+			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode)|0o200)
 			if err != nil {
 				return fmt.Errorf("failed to create regular file %v: %w", target, err)
 			}
@@ -265,9 +265,6 @@ func Extract(srcFile, destDir string) error {
 		if err := restoreArchiveMetadata(dir.target, &dir.header); err != nil {
 			return err
 		}
-		if err := os.Chmod(dir.target, os.FileMode(dir.header.Mode)); err != nil {
-			return fmt.Errorf("failed to restore mode for directory %v: %w", dir.target, err)
-		}
 	}
 
 	return nil
@@ -281,6 +278,16 @@ type dirMetadata struct {
 func restoreArchiveMetadata(target string, header *tar.Header) error {
 	if err := os.Lchown(target, header.Uid, header.Gid); err != nil {
 		return fmt.Errorf("failed to restore ownership for %v: %w", target, err)
+	}
+
+	// Creation modes are subject to umask, and Lchown can clear special mode
+	// bits. Restore modes after ownership, but skip symlinks because chmod
+	// follows the target and hard links because they share another inode.
+	switch header.Typeflag {
+	case tar.TypeReg, tar.TypeDir, tar.TypeChar, tar.TypeBlock, tar.TypeFifo:
+		if err := os.Chmod(target, os.FileMode(header.Mode)); err != nil {
+			return fmt.Errorf("failed to restore mode for %v: %w", target, err)
+		}
 	}
 
 	// os.Chtimes follows symlinks.

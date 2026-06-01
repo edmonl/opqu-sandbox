@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -263,6 +264,33 @@ func TestExtractRestoresDirectoryMetadataAfterChildren(t *testing.T) {
 	}
 	if got := info.ModTime(); !got.Equal(dirModTime) {
 		t.Fatalf("directory mtime = %v, want %v", got, dirModTime)
+	}
+}
+
+func TestExtractRestoresRegularFileModeAfterUmask(t *testing.T) {
+	tmpDir := t.TempDir()
+	destDir := filepath.Join(tmpDir, "dest")
+	archiveFile := filepath.Join(tmpDir, "archive.tar.zst")
+
+	writeTestArchive(t, archiveFile, []testArchiveEntry{{
+		name: "file",
+		body: "data",
+		mode: 0o666,
+	}})
+
+	oldUmask := syscall.Umask(0o077)
+	defer syscall.Umask(oldUmask)
+
+	if err := Extract(archiveFile, destDir); err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	info, err := os.Stat(filepath.Join(destDir, "file"))
+	if err != nil {
+		t.Fatalf("failed to stat extracted file: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o666 {
+		t.Fatalf("file mode = %v, want %v", got, os.FileMode(0o666))
 	}
 }
 
