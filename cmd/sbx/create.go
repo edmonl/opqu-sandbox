@@ -144,7 +144,7 @@ var createCmd = &cobra.Command{
 		}
 
 		// Enable networking
-		if err := util.RunCmd("chroot", sandboxFs, "systemctl", "enable", "systemd-networkd"); err != nil {
+		if err := util.RunCmd("systemctl", "--root="+sandboxFs, "enable", "systemd-networkd"); err != nil {
 			return fmt.Errorf("failed to enable systemd-networkd: %w", err)
 		}
 

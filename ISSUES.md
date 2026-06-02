@@ -10,6 +10,29 @@
    command failure instead of the confirmation and re-exec behavior used by
    lifecycle commands.
 
+2. Tests create temporary files outside the project by default.
+
+   The suite uses `t.TempDir()` throughout `cmd/sbx` and `internal`, which uses
+   Go's default temporary directory when `TMPDIR` is not overridden. That means
+   test-created rootfs directories, config files, fake binaries, snapshot
+   archives, and extraction outputs are normally created under the system temp
+   directory instead of inside the project.
+
+3. `TestCompressReportsFinalizationError` writes to `/dev/full`.
+
+   The test intentionally sends archive output to `/dev/full` to force a
+   finalization error. This does not create a persistent file, but it is still a
+   filesystem side effect outside the project tree and depends on a Linux device
+   path being available.
+
+4. External command output is not labeled with its source.
+
+   `sbx create` streams output from commands such as `mmdebstrap`, `debootstrap`,
+   `chroot`, and `systemctl` directly to the terminal. When those tools print
+   warnings or status messages, it can be hard to tell which command produced
+   them. Add lightweight command context around external command execution so
+   users can attribute output without making normal logs noisy.
+
 ## Ignored Issues
 
 1. `RequireInactiveRootfs` could wrap `HasMounts` errors with operation-specific context. Too trivial for rare cases.
