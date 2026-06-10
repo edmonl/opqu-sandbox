@@ -10,14 +10,6 @@
    command failure instead of the confirmation and re-exec behavior used by
    lifecycle commands.
 
-2. External command output is not labeled with its source.
-
-   `sbx create` streams output from commands such as `mmdebstrap`, `debootstrap`,
-   `chroot`, and `systemctl` directly to the terminal. When those tools print
-   warnings or status messages, it can be hard to tell which command produced
-   them. Add lightweight command context around external command execution so
-   users can attribute output without making normal logs noisy.
-
 ## Ignored Issues
 
 1. `RequireInactiveRootfs` could wrap `HasMounts` errors with operation-specific context. Too trivial for rare cases.

@@ -34,14 +34,19 @@ func Warn(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "Warning: "+format+"\n", args...)
 }
 
-// RunCmd executes a command with the provided arguments, binding its standard streams to the parent process.
+// RunCmd executes a command with the provided arguments, connnecting its standard streams to the current process.
+// It writes start and end markers so users can attribute output to the external command.
 // Raw errors are returned.
 func RunCmd(cmd string, args ...string) error {
 	execCmd := exec.Command(cmd, args...)
 	execCmd.Stdin = os.Stdin
 	execCmd.Stdout = os.Stdout
 	execCmd.Stderr = os.Stderr
-	return execCmd.Run()
+
+	fmt.Printf("Start external command: %v\n", cmd)
+	err := execCmd.Run()
+	fmt.Printf("End external command: %v \n", cmd)
+	return err
 }
 
 // CheckSymlinkTarget reports whether path is a symlink pointing exactly to wantTarget.
