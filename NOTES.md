@@ -44,3 +44,8 @@
 - Sandbox primary groups are created in a fresh rootfs with the sandbox username
   as the group name. Do not add `getent` checks unless creation stops targeting a
   clean filesystem.
+- Tests may use Go's system temporary directory through `t.TempDir()`, and may
+  use stable device paths such as `/dev/full` or `/dev/null` for behavior that
+  depends on those devices. The important invariant is cleanup and isolation:
+  test-created files and directories must be removed after the test, and
+  temporary state from one test must not block another test.
